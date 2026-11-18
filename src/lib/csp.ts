@@ -5,12 +5,15 @@
  */
 const isDev = process.env.NODE_ENV === "development";
 
-function supabaseHost(): string {
+/** Origem exata do Supabase (https em produção; http no Supabase local). */
+function supabaseOrigins(): { http: string; ws: string } {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  return url ? new URL(url).host : "*.supabase.co";
+  if (!url) return { http: "https://*.supabase.co", ws: "wss://*.supabase.co" };
+  const origin = new URL(url).origin;
+  return { http: origin, ws: origin.replace(/^http/, "ws") };
 }
 
-const host = supabaseHost();
+const supabase = supabaseOrigins();
 
 export const contentSecurityPolicy = [
   "default-src 'self'",
@@ -19,10 +22,10 @@ export const contentSecurityPolicy = [
   "img-src 'self' blob: data:",
   "font-src 'self'",
   // Áudio: gravação local (blob:) e reprodução por Signed URL do Storage.
-  `media-src 'self' blob: https://${host}`,
+  `media-src 'self' blob: ${supabase.http}`,
   // Banco, Auth, Storage e Edge Functions. As IAs são chamadas pela Edge
   // Function, nunca pelo navegador, por isso não aparecem aqui.
-  `connect-src 'self' https://${host} wss://${host}`,
+  `connect-src 'self' ${supabase.http} ${supabase.ws}`,
   "worker-src 'self'",
   "manifest-src 'self'",
   "object-src 'none'",

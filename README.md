@@ -14,11 +14,15 @@ cp .env.example .env.local   # só valores públicos
 npm run dev                  # http://localhost:3000
 ```
 
-Testes: `npm test` (Edge Functions), `npm run test:db` (schema e RLS), `npm run check:functions` (tipos no Deno).
+Testes: `npm test` (funções puras do site e das Edge Functions), `npm run test:db` (schema e RLS), `npm run check:functions` (tipos no Deno) e `npm run test:e2e` (fluxo completo no Chromium com Supabase falso; antes, uma vez: `npx playwright install chromium`).
 
 ## Configuração (uma vez)
 
-1. **Supabase:** crie o projeto e execute `supabase/schema.sql` no SQL Editor.
+1. **Supabase:** crie o projeto e execute `supabase/schema.sql` no SQL Editor. Depois, em **Authentication**:
+   - *Sign In / Providers > Email:* deixe o e-mail ativo.
+   - *Emails > Templates > Magic Link:* o login é por **código de 6 dígitos**, então o modelo precisa mostrar `{{ .Token }}`. Exemplo: `<h2>Seu código do Klin</h2><p>{{ .Token }}</p><p>Ele expira em 1 hora.</p>`.
+   - *URL Configuration > Site URL:* o endereço do site no GitHub Pages.
+   - O envio de e-mail do plano gratuito é limitado (poucos por hora). Para uso real, configure um SMTP próprio em *Emails > SMTP Settings*.
 2. **GitHub Pages:** Settings > Pages > Source: **GitHub Actions**.
 3. **GitHub > Settings > Secrets and variables > Actions**
    - *Variables* (públicas): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY` e, opcionalmente, `ALLOWED_ORIGINS` e `GEMINI_MODEL`.

@@ -67,3 +67,7 @@ supabase/.env*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# testes E2E
+/e2e/shots/
+/test-results/

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SessionProvider } from "@/components/auth/session-provider";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { contentSecurityPolicy } from "@/lib/csp";
 import "./globals.css";
@@ -45,7 +46,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <meta httpEquiv="Content-Security-Policy" content={contentSecurityPolicy} />
       </head>
       <body className="min-h-full flex flex-col">
-        {children}
+        <SessionProvider>{children}</SessionProvider>
         <ServiceWorkerRegister />
       </body>
     </html>
