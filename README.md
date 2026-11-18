@@ -20,9 +20,9 @@ Testes: `npm test` (funções puras do site e das Edge Functions), `npm run test
 
 1. **Supabase:** crie o projeto e execute `supabase/schema.sql` no SQL Editor. Depois, em **Authentication**:
    - *Sign In / Providers > Email:* deixe o e-mail ativo.
-   - *Emails > Templates > Magic Link:* o login é por **código de 6 dígitos**, então o modelo precisa mostrar `{{ .Token }}`. Exemplo: `<h2>Seu código do Klin</h2><p>{{ .Token }}</p><p>Ele expira em 1 hora.</p>`.
+   - *Emails > SMTP Settings:* **obrigatório**. Sem SMTP próprio, o Supabase não deixa editar os modelos de e-mail, e o envio gratuito é de poucos e-mails por hora. Opção sem custo: o próprio Gmail com uma **senha de app**, criada em https://myaccount.google.com/apppasswords (exige a verificação em duas etapas). Configuração: host `smtp.gmail.com`, porta `587`, usuário e remetente = o endereço Gmail, senha = a senha de app. O limite fica em cerca de 500 envios por dia.
+   - *Emails > Templates:* o login é por **código de 6 dígitos**. Os modelos **Magic link** e **Confirm sign up** (usado no 1º acesso de cada pessoa) precisam mostrar `{{ .Token }}`. Exemplo: `<h2>Seu código do Klin</h2><p>{{ .Token }}</p><p>Ele expira em 1 hora.</p>`.
    - *URL Configuration > Site URL:* o endereço do site no GitHub Pages.
-   - O envio de e-mail do plano gratuito é limitado (poucos por hora). Para uso real, configure um SMTP próprio em *Emails > SMTP Settings*.
 2. **GitHub Pages:** Settings > Pages > Source: **GitHub Actions**.
 3. **GitHub > Settings > Secrets and variables > Actions**
    - *Variables* (públicas): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY` e, opcionalmente, `ALLOWED_ORIGINS` e `GEMINI_MODEL`.
