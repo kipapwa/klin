@@ -345,6 +345,59 @@ create index if not exists push_subscriptions_user_idx
   on public.push_subscriptions (user_id);
 
 -- ---------------------------------------------------------------------
+-- 6b. ai_usage — cota diária de processamentos por IA (contra abuso/custo)
+-- Sem políticas: o usuário não lê nem apaga linhas (não "zera" a cota).
+-- Só a função ai_take_quota grava aqui.
+-- ---------------------------------------------------------------------
+create table if not exists public.ai_usage (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists ai_usage_user_created_idx
+  on public.ai_usage (user_id, created_at desc);
+
+alter table public.ai_usage enable row level security;
+revoke all on public.ai_usage from anon, authenticated;
+
+-- Gasta 1 da cota do usuário logado; devolve false se o limite de 24h acabou.
+-- Chamá-la por conta própria só gasta a própria cota (nunca libera mais).
+create or replace function public.ai_take_quota(p_limit integer default 30)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_used integer;
+begin
+  if v_user is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+
+  -- Serializa pedidos simultâneos do mesmo usuário.
+  perform pg_advisory_xact_lock(hashtextextended(v_user::text, 0));
+
+  select count(*) into v_used
+    from public.ai_usage
+   where user_id = v_user
+     and created_at > now() - interval '24 hours';
+
+  if v_used >= greatest(p_limit, 0) then
+    return false;
+  end if;
+
+  insert into public.ai_usage (user_id) values (v_user);
+  return true;
+end;
+$$;
+
+revoke execute on function public.ai_take_quota(integer) from public, anon;
+grant execute on function public.ai_take_quota(integer) to authenticated;
+
+-- ---------------------------------------------------------------------
 -- 7. Row Level Security
 -- ---------------------------------------------------------------------
 alter table public.profiles            enable row level security;

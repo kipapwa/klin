@@ -1,14 +1,16 @@
 /* Klin — Service Worker
  *
- * Fase 1: recebe Web Push e trata cliques nas notificações.
+ * Recebe Web Push e trata cliques nas notificações.
  * O cache offline (IndexedDB + sincronização) entra numa fase posterior.
+ * Hospedado no GitHub Pages: todos os caminhos são relativos ao escopo
+ * (self.registration.scope), que já inclui o basePath.
  *
  * Contrato do payload enviado pelo servidor (JSON):
  * {
- *   "title": "Klin",                         // opcional
+ *   "title": "Klin",                              // opcional
  *   "body":  "Hora da sua medicação programada.", // opcional
- *   "url":   "/medicamentos",                // caminho relativo do app
- *   "tag":   "dose-<medication_id>",         // agrupa/substitui notificações
+ *   "url":   "medicamentos/",                     // caminho relativo ao escopo
+ *   "tag":   "dose-<medication_id>",              // agrupa/substitui notificações
  *   "dose":  { "medicationId": "<uuid>", "scheduledFor": "<ISO 8601>" } // opcional
  * }
  *
@@ -19,7 +21,6 @@
 
 const DISCREET_TITLE = "Klin";
 const DISCREET_BODY = "Hora da sua medicação programada.";
-const MARK_TAKEN_ENDPOINT = "/api/doses/taken";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 self.addEventListener("install", () => {
@@ -30,10 +31,15 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-/** Aceita só caminhos do próprio app (evita abrir sites externos). */
+/** URL absoluta dentro do escopo do app (o basePath já está no escopo). */
+function inScope(path) {
+  return new URL(path, self.registration.scope).href;
+}
+
+/** Aceita só caminhos relativos do próprio app (evita abrir sites externos). */
 function safePath(value) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/";
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9/_?=&.-]*$/i.test(value)) {
+    return "";
   }
   return value.slice(0, 300);
 }
@@ -61,8 +67,8 @@ self.addEventListener("push", (event) => {
   const dose = parseDose(payload.dose);
   const options = {
     body: text(payload.body, DISCREET_BODY, 200),
-    icon: "/icons/icon-192.png",
-    badge: "/icons/badge-96.png",
+    icon: inScope("icons/icon-192.png"),
+    badge: inScope("icons/badge-96.png"),
     tag: text(payload.tag, undefined, 100),
     renotify: Boolean(payload.tag),
     requireInteraction: Boolean(dose),
@@ -76,11 +82,21 @@ self.addEventListener("push", (event) => {
   );
 });
 
+/**
+ * "Marcar como tomado": abre o app na tela de medicamentos com a dose na URL;
+ * o app (com a sessão do usuário) grava em medication_logs, protegido pelo RLS.
+ * O SW não tem o token de login, por isso não grava sozinho.
+ */
+function markTakenPath(dose) {
+  const q = new URLSearchParams({ tomar: dose.medicationId, horario: dose.scheduledFor });
+  return `medicamentos/?${q.toString()}`;
+}
+
 async function focusOrOpen(path) {
-  const url = new URL(path, self.location.origin).href;
+  const url = inScope(path);
   const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   for (const client of windows) {
-    if (new URL(client.url).origin === self.location.origin && "focus" in client) {
+    if (client.url.startsWith(self.registration.scope) && "focus" in client) {
       if ("navigate" in client) await client.navigate(url).catch(() => {});
       return client.focus();
     }
@@ -88,29 +104,9 @@ async function focusOrOpen(path) {
   return self.clients.openWindow(url);
 }
 
-async function markTaken(dose, fallbackPath) {
-  try {
-    const res = await fetch(MARK_TAKEN_ENDPOINT, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...dose, source: "notification" }),
-    });
-    if (res.ok) return;
-  } catch {
-    // sem rede ou sessão expirada: cai no fallback abaixo
-  }
-  // Não deu para registrar em segundo plano: abre o app para o usuário confirmar.
-  await focusOrOpen(fallbackPath);
-}
-
 self.addEventListener("notificationclick", (event) => {
-  const { url = "/", dose = null } = event.notification.data || {};
+  const { url = "", dose = null } = event.notification.data || {};
   event.notification.close();
-
-  if (event.action === "mark-taken" && dose) {
-    event.waitUntil(markTaken(dose, url));
-    return;
-  }
-  event.waitUntil(focusOrOpen(url));
+  const target = event.action === "mark-taken" && dose ? markTakenPath(dose) : url;
+  event.waitUntil(focusOrOpen(target));
 });

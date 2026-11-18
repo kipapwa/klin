@@ -1,0 +1,83 @@
+# Publica as Supabase Edge Functions e grava os segredos delas.
+#
+# Configuração única no GitHub (Settings > Secrets and variables > Actions):
+#   Secrets:
+#     SUPABASE_ACCESS_TOKEN  (https://supabase.com/dashboard/account/tokens)
+#     SUPABASE_PROJECT_REF   (id do projeto, ex.: abcdefghijklmnop)
+#     GEMINI_API_KEY         (IA primária)
+#     GROQ_API_KEY           (IA de reserva — https://console.groq.com/keys)
+#   Variables (opcionais):
+#     ALLOWED_ORIGINS        (ex.: https://usuario.github.io)
+#     GEMINI_MODEL, GROQ_TRANSCRIPTION_MODEL, GROQ_CHAT_MODEL, AI_TIMEOUT_MS, AI_DAILY_LIMIT
+#
+# As chaves nunca aparecem no log: o GitHub mascara os secrets e elas vão
+# para o Supabase por arquivo temporário, não por argumento de linha de comando.
+name: Publicar Edge Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/deploy-functions.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-functions
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Testes das funções
+        run: node --test "supabase/functions/_shared/*.test.ts"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Gravar segredos
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GROQ_TRANSCRIPTION_MODEL: ${{ vars.GROQ_TRANSCRIPTION_MODEL }}
+          GROQ_CHAT_MODEL: ${{ vars.GROQ_CHAT_MODEL }}
+          AI_TIMEOUT_MS: ${{ vars.AI_TIMEOUT_MS }}
+          AI_DAILY_LIMIT: ${{ vars.AI_DAILY_LIMIT }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::warning::Falta o segredo GEMINI_API_KEY: só o Groq será usado."
+          fi
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "::warning::Falta o segredo GROQ_API_KEY: sem reserva quando o Gemini falhar."
+          fi
+          if [ -z "$ALLOWED_ORIGINS" ]; then
+            ALLOWED_ORIGINS="https://${GITHUB_REPOSITORY_OWNER,,}.github.io"
+          fi
+
+          envfile="$(mktemp)"
+          trap 'rm -f "$envfile"' EXIT
+          for name in GEMINI_API_KEY GROQ_API_KEY ALLOWED_ORIGINS GEMINI_MODEL \
+                      GROQ_TRANSCRIPTION_MODEL GROQ_CHAT_MODEL AI_TIMEOUT_MS AI_DAILY_LIMIT; do
+            value="${!name}"
+            if [ -n "$value" ]; then printf '%s=%s\n' "$name" "$value" >> "$envfile"; fi
+          done
+          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$envfile"
+
+      - name: Publicar funções
+        run: supabase functions deploy processar-registro --project-ref "$PROJECT_REF" --use-api

@@ -5,23 +5,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Atue como um Engenheiro de Software Sênior e Arquiteto de Sistemas Full-Stack especializado em HealthTech e PWAs. Vamos construir um aplicativo web de *Registros Médicos (Medical Notes PWA)* neste repositório.
 
 ### Diretriz de Execução (Claude Code + Segurança)
-- *Antes de escrever qualquer código de backend, autenticação ou banco de dados, aplique rigorosamente as regras da seção 4 (Segurança e Privacidade)*: blindagem de chaves de API (somente no servidor), prevenção contra vazamento de dados sensíveis (PHI/LGPD — nunca registrar conteúdo clínico em logs, mensagens de erro ou analytics), validação e sanitização de todos os inputs no servidor e configuração segura do Supabase (RLS em todas as tabelas; `service_role` só no servidor).
-- *Observação sobre skills:* a skill `proteger-codigo` NÃO se aplica a este projeto — ela trata de esconder o código de sites estáticos no GitHub Pages, que não roda os Route Handlers do Next.js onde as chaves precisam ficar. A skill `ia-reserva-groq` cobre o fallback Gemini → Groq (Fase 2), mas foi escrita para HTML/JS puro + Edge Functions e deve ser adaptada para Next.js.
+- *Antes de escrever qualquer código de backend, autenticação ou banco de dados, aplique rigorosamente as regras da seção 4 (Segurança e Privacidade)*: blindagem de chaves de API (somente no servidor), prevenção contra vazamento de dados sensíveis (PHI/LGPD — nunca registrar conteúdo clínico em logs, mensagens de erro ou analytics), validação e sanitização de todos os inputs no servidor e configuração segura do Supabase (RLS em todas as tabelas; chave secreta/`service_role` só em Edge Function).
+- *Observação sobre skills:* o app segue o modelo das skills do usuário (site estático no GitHub Pages + Supabase Edge Functions publicadas por GitHub Actions). A `ia-reserva-groq` foi aplicada na Fase 2. A `proteger-codigo` (repositório privado + site público minificado) é opcional e só deve ser usada se o usuário pedir.
 - *Execução Incremental:* Não tente gerar todo o aplicativo em uma única resposta. Divida a implementação em fases claras, validando a estrutura e criando os arquivos passo a passo no workspace.
 
 ---
 
 ### Comandos
 - `npm run dev` — servidor de desenvolvimento (`npx next dev --experimental-https` para testar Web Push).
-- `npm run build` / `npm start` — build e servidor de produção.
-- `npm run lint` — ESLint.
-- `npm run typecheck` — gera os tipos de rota do Next (`LayoutProps`, `PageProps`) e roda `tsc`. Rodar `tsc` direto, sem `next typegen`, dá erro falso.
-- Banco: aplicar `supabase/schema.sql` no SQL Editor do Supabase (idempotente).
+- `npm run build` — export estático em `out/` (o que vai para o GitHub Pages). No Git Bash, ao testar com basePath, use `MSYS_NO_PATHCONV=1 NEXT_PUBLIC_BASE_PATH=/klin npm run build`: sem isso o Git Bash converte `/klin` num caminho do Windows.
+- `npm run lint` — ESLint. `npm run typecheck` — `next typegen` + `tsc`. Rodar `tsc` direto, sem o typegen, dá erro falso em `LayoutProps`.
+- `npm test` — testes das Edge Functions (`supabase/functions/_shared/*.test.ts`, `node:test` com o TypeScript nativo do Node 24). Um arquivo só: `node --test supabase/functions/_shared/ai.test.ts`.
+- `npm run test:db` — roda `supabase/schema.sql` num Postgres em memória (PGlite) com imitações de `auth`/`storage` e testa RLS, gatilhos e cota. Rode sempre que mexer no schema.
+- `npm run check:functions` — checagem de tipos das Edge Functions com o Deno (via npx).
+- Banco: aplicar `supabase/schema.sql` no SQL Editor do Supabase (idempotente), **antes** de publicar código que dependa da mudança.
+- Publicação: push na `main` dispara `.github/workflows/deploy-site.yml` (Pages) e/ou `deploy-functions.yml` (Edge Functions + segredos).
 
 ### Notas de arquitetura
-- *Next.js 16:* tem mudanças incompatíveis com versões anteriores (ex.: `middleware` agora é `proxy.ts`; `cacheComponents` ligado). Antes de usar uma API do Next, consulte `node_modules/next/dist/docs/` (ver `AGENTS.md`).
-- *Service Worker:* é JS puro em `public/sw.js` (escopo `/`), registrado por `src/components/pwa/service-worker-register.tsx`. O contrato do payload de push e da ação "Marcar como tomado" (`POST /api/doses/taken`, rota ainda a criar) está documentado no topo do arquivo. A privacidade do texto (discreto × detalhado) é decidida no servidor, não no SW.
-- *Cabeçalhos de segurança/CSP:* `next.config.ts`. Um novo domínio externo chamado pelo navegador precisa entrar na CSP; as chamadas às IAs saem do servidor e não entram.
+- *Hospedagem = GitHub Pages (estático):* `next.config.ts` usa `output: "export"`. Não existem Route Handlers, Server Actions, Proxy, `headers()`, cookies nem Cache Components. Todo código com segredo vai para `supabase/functions/` (Deno). O site fala direto com o Supabase usando a chave pública, protegido pelo RLS.
+- *basePath:* o site pode ficar em `/<repo>/`. Caminhos absolutos no código passam por `withBase()` (`src/lib/base-path.ts`); o manifest já usa. O Service Worker resolve tudo relativo a `self.registration.scope`.
+- *Next.js 16:* tem mudanças incompatíveis com versões anteriores. Antes de usar uma API do Next, consulte `node_modules/next/dist/docs/` (ver `AGENTS.md`).
+- *Edge Functions:* a lógica fica em `supabase/functions/_shared/`, em TS puro sem APIs do Deno, para ser testada no Node. O `index.ts` de cada função é a casca Deno (`Deno.serve`, `npm:@supabase/supabase-js@<versão exata>`). `supabase/functions` fica fora do `tsconfig` do Next.
+- *IA (`processar-registro`):* `structureAudio` tenta o Gemini (`generateContent` com áudio inline até 14 MB e `responseJsonSchema`) e, em qualquer falha, o Groq (Whisper, depois Llama em `json_object`). Prompt e validação (`validateClinicalNote`) são os mesmos para as duas. A função usa o token do usuário (RLS), gasta 1 da cota (`ai_take_quota`), reserva o registro (`draft/failed → processing`), grava a nota e cria medicamentos `source='ai'` com `notifications_enabled=false` (o usuário confere antes). Os sem intervalo voltam em `medicationsNeedingReview`.
+- *Service Worker:* JS puro em `public/sw.js`, registrado por `src/components/pwa/service-worker-register.tsx`. O contrato do payload de push está no topo do arquivo. "Marcar como tomado" abre `medicamentos/?tomar=<id>&horario=<iso>`: o SW não tem o token de login. A privacidade do texto (discreto × detalhado) é decidida no servidor, não no SW.
+- *CSP:* `<meta>` gerada por `src/lib/csp.ts`. Um novo domínio chamado pelo navegador precisa entrar nela; as chamadas às IAs saem da Edge Function e não entram.
 - *Banco:* toda tabela tem `user_id default auth.uid()` + RLS. As relações usam FK composta `(id, user_id)`. Os gatilhos calculam `medications.ends_at`/`next_dose_at` e avançam `next_dose_at` ao inserir em `medication_logs`. As colunas `client_id` existem para a sincronização offline idempotente.
 - Regras de segurança completas: `SECURITY.md`.
 
@@ -31,9 +38,9 @@ Atue como um Engenheiro de Software Sênior e Arquiteto de Sistemas Full-Stack e
 - *Frontend:* Next.js (App Router), TypeScript, Tailwind CSS (Mobile-First e configurado como PWA com manifest.json e Service Worker customizado).
 - *Backend / BaaS:* Supabase (PostgreSQL, Auth, Supabase Storage privado para áudios e Edge Functions/Cron para disparos agendados se necessário).
 - *Versionamento:* Git configurado com .gitignore estrito (garantindo que .env* nunca seja rastreado) e pronto para deploy contínuo via GitHub.
-- *Hospedagem:* a definir — precisa executar código de servidor do Next.js (ex.: Vercel). GitHub Pages não serve, pois é apenas estático.
+- *Hospedagem:* GitHub Pages (site estático, via GitHub Actions). Código com segredo roda em Supabase Edge Functions.
 - *Inteligência Artificial (Resiliência e Fallback Server-Side):*
-  - *Fluxo Primário:* API do *Google Gemini* (gemini-2.5-flash) recebendo o áudio diretamente e retornando um JSON estruturado (Schema Enforcement).
+  - *Fluxo Primário:* API do *Google Gemini* (`gemini-3.8-flash` por padrão, configurável em `GEMINI_MODEL`; o `gemini-2.5-flash` da especificação original desliga em 01/12/2026) recebendo o áudio diretamente e retornando um JSON estruturado (Schema Enforcement).
   - *Fluxo de Fallback:* Caso a chamada ao Gemini falhe (timeout, erro 429/5xx ou indisponibilidade), acionar automaticamente a API do *Groq* (whisper-large-v3 para transcrição do áudio + llama-3.3-70b-versatile em modo JSON para estruturação).
 
 ---
@@ -63,7 +70,7 @@ Atue como um Engenheiro de Software Sênior e Arquiteto de Sistemas Full-Stack e
 ---
 
 ### 4. Segurança e Privacidade
-- *Zero Exposure de Chaves:* Todas as chamadas para Gemini, Groq e envio de Web Push (VAPID Private Key) devem ocorrer exclusivamente em *Route Handlers / Server Actions / Edge Functions* no servidor. Nunca expor chaves no cliente.
+- *Zero Exposure de Chaves:* Todas as chamadas para Gemini, Groq e envio de Web Push (VAPID Private Key) devem ocorrer exclusivamente em *Supabase Edge Functions* (o site é estático). Nunca expor chaves no cliente.
 - *Privacidade nas Notificações:* Por questões de sigilo médico, permitir configurar nas notificações push se o texto exibido na tela bloqueada mostra o nome do remédio ou uma mensagem discreta (ex: "Hora da sua medicação programada").
 - *Row Level Security (RLS) Estrito:* Políticas no PostgreSQL e no Supabase Storage garantindo que cada usuário autenticado acesse, insira e delete exclusivamente seus próprios registros, medicações, logs de doses e arquivos de áudio (Signed URLs temporárias para reprodução).
 - *Bloqueio de Tela Rápido:* Tela de proteção local por *PIN numérico* (com hash seguro) ou WebAuthn/Biometria ao abrir ou retomar o app no dispositivo móvel.
