@@ -1,8 +1,25 @@
 @import "tailwindcss";
 
+/*
+ * Tema: Automático (segue o celular), Claro ou Escuro.
+ * O escolhido fica em <html data-theme="light|dark">; sem o atributo, segue o sistema.
+ * A variante `dark:` do Tailwind passa a respeitar essa escolha.
+ */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
 :root {
   --background: #fafafa; /* zinc-50: cartões brancos se destacam */
   --foreground: #171717;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -13,10 +30,16 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --background: #09090b;
     --foreground: #ededed;
+    color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --background: #09090b;
+  --foreground: #ededed;
+  color-scheme: dark;
 }
 
 body {
@@ -28,4 +51,39 @@ body {
 /* Toque mais limpo no celular. */
 html {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Puxar a tela para baixo não recarrega o app (Chrome/Android) nem "estica" a página. */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
+/* Folhas que sobem de baixo (<dialog>). */
+dialog.sheet {
+  margin: auto auto 0;
+  width: 100%;
+  max-width: 42rem;
+  max-height: 88dvh;
+  border: 0;
+  padding: 0;
+  border-radius: 24px 24px 0 0;
+  background: transparent;
+}
+dialog.sheet::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+dialog.sheet[open] {
+  animation: sheet-up 0.18s ease-out;
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog.sheet[open] {
+    animation: none;
+  }
 }

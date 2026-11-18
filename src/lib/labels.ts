@@ -71,6 +71,13 @@ export function formatDoseTime(iso: string, now: number): string {
   return d.toDateString() === new Date(now).toDateString() ? timeOnly.format(d) : weekdayTime.format(d);
 }
 
+/** Último instante (ms) do dia local de `ms`. */
+export function endOfLocalDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
+
 export function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = Math.floor(totalSeconds % 60);

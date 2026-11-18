@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { withBase } from "@/lib/base-path";
+// Escuta o aviso de instalação do navegador desde a abertura do app.
+import "@/lib/install";
 
 /**
  * Registra o Service Worker (public/sw.js) uma vez por carregamento.

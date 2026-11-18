@@ -90,6 +90,7 @@ page.on("console", (m) => {
   if (m.type() === "error" || /Content Security Policy/i.test(text)) problems.push(text);
 });
 page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
+page.on("dialog", (d) => d.accept()); // confirmações do app (ex.: "Sair da conta?")
 const step = (s) => console.log("OK  " + s);
 const BASE = "http://localhost:3210"; // WebAuthn não aceita IP como domínio
 
@@ -181,12 +182,20 @@ try {
   const losartanaCard = page.locator("li", { hasText: "Losartana" });
   await losartanaCard.locator("text=Hora da dose").waitFor();
   await page.screenshot({ path: `${shots}/7-medicamentos.png`, fullPage: true });
-  await losartanaCard.locator("text=Marcar como tomado").click();
-  await page.waitForSelector("text=Dose de Losartana registrada ✓");
+  // Sininho do topo: número de doses agora e "Tomei" sem sair da tela.
+  const bell = page.locator("header button[aria-label^='Lembretes']");
+  await page.waitForSelector("header button[aria-label*='dose(s) agora']"); // número carrega depois
+  await bell.click();
+  const bellSheet = page.locator("dialog[aria-label='Lembretes']");
+  await bellSheet.locator("li", { hasText: "Losartana" }).locator("text=Tomei").click();
+  await bellSheet.locator("li", { hasText: "Losartana" }).waitFor({ state: "detached" });
+  await page.screenshot({ path: `${shots}/16-sininho.png` });
+  await bellSheet.locator("[aria-label='Fechar']").click();
+  // A lista atrás atualiza sozinha (evento de dose registrada).
   await losartanaCard.locator("text=Próxima dose").waitFor();
   const losartana = state.meds.find((m) => m.name === "Losartana");
   if (state.logs.filter((l) => l.medication_id === losartana.id && l.status === "taken").length !== 1) throw new Error("dose não registrada");
-  step("marcar como tomado avança para a próxima dose");
+  step("sininho: dose de agora marcada como tomada e lista atualizada");
 
   // Vindo da notificação (ação "Marcar como tomado" do Service Worker).
   const pending = omeprazol.next_dose_at;
@@ -194,7 +203,7 @@ try {
   await page.goto(fromPush);
   await page.waitForSelector("text=Confirmar a dose de Omeprazol");
   await page.screenshot({ path: `${shots}/8-confirmar-push.png` });
-  await page.click("button:has-text('Tomei')");
+  await page.click("[role=dialog][aria-label='Confirmar dose'] >> button:has-text('Tomei')");
   await page.waitForSelector("text=Dose de Omeprazol registrada ✓");
   const pushLog = state.logs.find((l) => l.medication_id === omeprazol.id);
   if (pushLog?.source !== "notification" || Date.parse(pushLog.scheduled_for) !== Date.parse(pending)) {
@@ -232,7 +241,7 @@ try {
   }
   const vitLocal = new Date(vit.next_dose_at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
   if (!["08:00", "20:00"].includes(vitLocal)) throw new Error("próxima dose fora dos horários: " + vitLocal);
-  await page.waitForSelector("text=Ative as notificações neste aparelho");
+  await page.locator("main >> text=Ative as notificações neste aparelho").waitFor();
   step(`remédio com horários do dia (próxima dose às ${vitLocal}) e aviso para ativar notificações`);
   await page.click("nav >> text=Remédios");
   await page.waitForSelector("li:has-text('Vitamina D') >> text=Todos os dias às 08:00 e 20:00");
@@ -241,18 +250,22 @@ try {
   // --- Linha do tempo: filtros e busca -------------------------------------
   await page.click("nav >> text=Registros");
   await page.waitForSelector("text=novembro de 2026");
-  await page.click("[aria-label='Filtrar por categoria'] >> text=Exames");
-  await page.waitForSelector("text=Nenhum registro com esses filtros.");
+  await page.click("button[aria-label='Filtros']");
+  const filterSheet = page.locator("dialog[aria-label='Filtrar registros']");
+  await filterSheet.locator("[aria-label='Filtrar por categoria'] >> text=Exames").click();
+  await filterSheet.locator("text=Mostrar resultados").click();
+  await page.waitForSelector("text=Nenhum registro encontrado");
   if (!state.calls.some((c) => c.includes("category=in.%28exam%29"))) throw new Error("filtro não foi enviado ao banco");
-  await page.click("text=Limpar filtros");
+  await page.waitForSelector("button[aria-label='Filtros (1 ativos)']");
+  await page.screenshot({ path: `${shots}/17-filtro-ativo.png` });
+  await page.click("[aria-label='Remover filtro Exames']");
+  // Busca enquanto digita, sem botão.
   await page.fill("[aria-label='Buscar nos registros']", "peito");
-  await page.click("button:has-text('Buscar')");
   await page.waitForSelector("a[href*='/registro/'] >> text=Dor no peito ao subir escadas");
   if (page.url().includes("peito")) throw new Error("termo de busca vazou para a URL");
   await page.fill("[aria-label='Buscar nos registros']", "joelho");
-  await page.click("button:has-text('Buscar')");
-  await page.waitForSelector("text=Nenhum registro com esses filtros.");
-  await page.click("text=Limpar filtros");
+  await page.waitForSelector("text=Nenhum registro encontrado");
+  await page.click("[aria-label='Limpar busca']");
   await page.waitForSelector("a[href*='/registro/']");
   await page.screenshot({ path: `${shots}/11-linha-do-tempo.png`, fullPage: true });
   step("linha do tempo: filtros por categoria e busca no texto");
@@ -306,20 +319,23 @@ try {
   await page.waitForURL("**/ajustes/");
   await page.waitForSelector("text=Tentar de novo");
   await page.locator("text=Tentar de novo").first().click();
-  await page.waitForSelector("text=Discreta (recomendado)");
-  await page.waitForSelector("text=Usando America/Sao_Paulo");
+  // Menu de Ajustes: valores atuais à direita das linhas.
+  await page.locator("nav[aria-label='Notificações'] >> text=Discreta").waitFor();
+  await page.locator("nav[aria-label='Notificações'] >> text=São Paulo").waitFor();
   step("Ajustes: falha ao carregar o perfil mostra o erro e \"Tentar de novo\" recupera");
-  await page.click("text=Ativar notificações");
-  await page.waitForSelector("text=✓ Ativadas neste aparelho");
+  await page.click("[role=switch][aria-label='Notificações neste aparelho']");
+  await page.waitForSelector("text=Notificações ativadas ✓");
+  await page.waitForSelector("text=Ativadas: aviso na hora de cada dose.");
   if (state.subs.length !== 1 || state.subs[0].endpoint !== "https://push.exemplo/aparelho-e2e" || !state.subs[0].p256dh) {
     throw new Error("inscrição não registrada: " + JSON.stringify(state.subs));
   }
   if ((await page.evaluate(() => window.__subscribeKeyLength)) !== 65) throw new Error("chave VAPID pública mal convertida");
   step("ativar notificações registra a inscrição do aparelho");
 
-  await page.click("text=Enviar teste");
+  await page.click("text=Enviar notificação de teste");
   await page.waitForSelector("text=Notificação de teste enviada.");
-  await page.click("text=Mostrar o nome do remédio");
+  await page.click("text=Tela bloqueada");
+  await page.locator("dialog[aria-label='O que aparece na tela bloqueada'] >> text=Mostrar o nome do remédio").click();
   await page.waitForSelector("text=Preferência salva.");
   if (state.profile.notification_privacy !== "detailed") throw new Error("privacidade não salva");
   await page.screenshot({ path: `${shots}/10-ajustes.png`, fullPage: true });
@@ -351,7 +367,7 @@ try {
       const reg = await navigator.serviceWorker.ready;
       const list = await reg.getNotifications();
       return list.length
-        ? { title: list[0].title, body: list[0].body, tag: list[0].tag, actions: list[0].actions.map((a) => a.action), data: list[0].data }
+        ? { title: list[0].title, body: list[0].body, tag: list[0].tag, actions: list[0].actions.map((a) => a.action), data: list[0].data, icon: list[0].icon, badge: list[0].badge }
         : null;
     });
     if (!n) await page.waitForTimeout(250);
@@ -360,7 +376,10 @@ try {
   if (n.body !== "Hora da sua medicação programada." || !n.actions.includes("mark-taken") || n.data.dose.medicationId !== omeprazol.id || n.data.url !== "medicamentos/") {
     throw new Error("notificação exibida errada: " + JSON.stringify(n));
   }
-  step("Service Worker exibe o push com o botão \"Marcar como tomado\"");
+  if (!n.icon.endsWith("/icons/transparent-192.png") || !n.badge.endsWith("/icons/badge-96.png")) {
+    throw new Error("ícones da notificação errados: " + JSON.stringify({ icon: n.icon, badge: n.badge }));
+  }
+  step("Service Worker exibe o push com o botão \"Marcar como tomado\" (só o ícone pequeno do Klin)");
 
   // --- Bloqueio por PIN e biometria ------------------------------------------
   // Autenticador virtual de plataforma (digital/rosto) pelo DevTools.
@@ -369,8 +388,8 @@ try {
     options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true },
   });
   await page.reload();
-  await page.waitForSelector("text=Criar PIN");
-  await page.click("text=Criar PIN");
+  await page.waitForSelector("text=Bloqueio por PIN");
+  await page.click("text=Bloqueio por PIN");
   await page.fill("#new-pin", "1234");
   await page.fill("#confirm-pin", "1234");
   await page.click("text=Salvar PIN");
@@ -378,7 +397,7 @@ try {
   await page.fill("#new-pin", "2580");
   await page.fill("#confirm-pin", "2580");
   await page.click("text=Salvar PIN");
-  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  await page.waitForSelector("text=Bloquear agora");
   const stored = await page.evaluate(() => localStorage.getItem("klin:lock"));
   if (!stored || stored.includes("2580")) throw new Error("PIN guardado em texto puro: " + stored);
   await page.click("[role=switch][aria-label='Desbloquear com digital ou rosto']");
@@ -387,7 +406,7 @@ try {
 
   // Ao travar, a biometria é pedida sozinha: com a "digital" aceita, destrava sem toque.
   await page.click("text=Bloquear agora");
-  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  await page.waitForSelector("text=Bloquear agora");
   if (!(await page.locator("nav").count())) throw new Error("a biometria automática não destravou");
   step("ao travar, pede a digital/rosto sozinho e destrava");
 
@@ -404,7 +423,7 @@ try {
   await page.screenshot({ path: `${shots}/13-bloqueio.png` });
   await setVerified(true);
   await page.click("text=Desbloquear com digital / rosto");
-  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  await page.waitForSelector("text=Bloquear agora");
   step("biometria recusada: fica bloqueado; PIN errado recusado; botão de digital destrava");
 
   await setVerified(false);
@@ -412,7 +431,7 @@ try {
   await page.waitForSelector("text=App bloqueado");
   await page.fill("#unlock-pin", "2580");
   await page.click("text=Desbloquear com PIN");
-  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  await page.waitForSelector("text=Bloquear agora");
   step("ao reabrir o app fica bloqueado; PIN certo desbloqueia");
 
   await page.click("text=Sair");

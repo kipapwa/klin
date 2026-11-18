@@ -29,7 +29,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // montadas no aparelho). Pedidos ao Supabase (outra origem) nunca passam
 // por aqui. Trocar CACHE_VERSION apaga os caches antigos.
 // ---------------------------------------------------------------------
-const CACHE_VERSION = "klin-v1";
+const CACHE_VERSION = "klin-v2";
 const APP_PAGES = ["", "gravar/", "medicamentos/", "medicamentos/detalhe/", "medicamentos/editar/", "registro/", "ajustes/", "entrar/"];
 
 self.addEventListener("install", (event) => {
@@ -127,7 +127,10 @@ self.addEventListener("push", (event) => {
   const dose = parseDose(payload.dose);
   const options = {
     body: text(payload.body, DISCREET_BODY, 200),
-    icon: inScope("icons/icon-192.png"),
+    // Android: o "badge" é o ícone pequeno da esquerda (cruz do Klin). O "icon"
+    // é a imagem grande da direita; sem ele o Android mostra as iniciais do
+    // site. Uma imagem transparente deixa esse espaço vazio.
+    icon: inScope("icons/transparent-192.png"),
     badge: inScope("icons/badge-96.png"),
     tag: text(payload.tag, undefined, 100),
     renotify: Boolean(payload.tag),

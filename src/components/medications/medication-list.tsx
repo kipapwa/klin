@@ -7,7 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useNow } from "@/hooks/use-now";
 import { dueSlot, isPendingSlot } from "@/lib/doses";
 import { formatDoseTime } from "@/lib/labels";
-import { listMedications, recordDose, type DoseAction } from "@/lib/medications";
+import { DOSES_CHANGED, listMedications, recordDose, type DoseAction } from "@/lib/medications";
 import { UserFacingError } from "@/lib/records";
 import type { Medication } from "@/lib/types";
 import { PillIcon } from "@/components/ui/icons";
@@ -40,9 +40,13 @@ export function MedicationList() {
 
   useEffect(() => {
     let active = true;
-    load().then((s) => active && setState(s));
+    const refresh = () => load().then((s) => active && setState(s));
+    refresh();
+    // Dose marcada pelo sininho (ou outra tela): atualiza a lista.
+    window.addEventListener(DOSES_CHANGED, refresh);
     return () => {
       active = false;
+      window.removeEventListener(DOSES_CHANGED, refresh);
     };
   }, [load]);
 

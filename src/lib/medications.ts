@@ -3,6 +3,12 @@ import type { MedicationInput } from "./medication-form";
 import { UserFacingError } from "./records";
 import type { Medication, MedicationLog } from "./types";
 
+/** Disparado ao registrar dose ou mudar remédios: sininho e listas recarregam. */
+export const DOSES_CHANGED = "klin:doses-changed";
+function dosesChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(DOSES_CHANGED));
+}
+
 const COLUMNS =
   "id, record_id, name, dosage, instructions, interval_hours, schedule_type, dose_times, timezone, duration_days, starts_at, ends_at, next_dose_at, source, is_active, notifications_enabled";
 
@@ -38,6 +44,7 @@ export async function saveMedication(input: MedicationInput, id?: string, record
   if (id) {
     const { error } = await supabase.from("medications").update({ ...input, is_active: true }).eq("id", id);
     if (error) throw new UserFacingError("Não foi possível salvar as alterações.");
+    dosesChanged();
     return id;
   }
   const { data, error } = await supabase
@@ -45,7 +52,8 @@ export async function saveMedication(input: MedicationInput, id?: string, record
     .insert({ ...input, source: "manual", record_id: recordId ?? null })
     .select("id")
     .single();
-  if (error || !data) throw new UserFacingError("Não foi possível cadastrar o medicamento.");
+  if (error || !data) throw new UserFacingError("Não foi possível cadastrar o remédio.");
+  dosesChanged();
   return data.id as string;
 }
 
@@ -70,14 +78,21 @@ export async function recordDose(
       taken_at: action === "taken" ? new Date().toISOString() : null,
       source,
     });
-  if (!error) return "ok";
-  if (error.code === "23505") return "already";
+  if (!error) {
+    dosesChanged();
+    return "ok";
+  }
+  if (error.code === "23505") {
+    dosesChanged();
+    return "already";
+  }
   throw new UserFacingError("Não foi possível registrar a dose.");
 }
 
 export async function setReminders(id: string, enabled: boolean): Promise<void> {
   const { error } = await getSupabase().from("medications").update({ notifications_enabled: enabled }).eq("id", id);
   if (error) throw new UserFacingError("Não foi possível alterar os lembretes.");
+  dosesChanged();
 }
 
 export async function endTreatment(id: string): Promise<void> {
@@ -86,11 +101,13 @@ export async function endTreatment(id: string): Promise<void> {
     .update({ is_active: false, notifications_enabled: false })
     .eq("id", id);
   if (error) throw new UserFacingError("Não foi possível encerrar o tratamento.");
+  dosesChanged();
 }
 
 export async function deleteMedication(id: string): Promise<void> {
   const { error } = await getSupabase().from("medications").delete().eq("id", id);
   if (error) throw new UserFacingError("Não foi possível apagar o medicamento.");
+  dosesChanged();
 }
 
 // ---------------------------------------------------------------------
