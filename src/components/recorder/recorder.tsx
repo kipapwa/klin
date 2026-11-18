@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSession } from "@/components/auth/session-provider";
 import { storePrefill } from "@/lib/medications";
+import { saveDraft } from "@/lib/offline-store";
 import { SeverityBadge } from "@/components/records/record-card";
 import { Spinner } from "@/components/ui/spinner";
 import { MAX_RECORDING_SECONDS } from "@/lib/audio";
 import { formatDuration } from "@/lib/labels";
-import { createRecordFromAudio, processRecord, UserFacingError } from "@/lib/records";
+import { createRecordFromAudio, OfflineError, processRecord, UserFacingError } from "@/lib/records";
 import type { ProcessResult } from "@/lib/types";
 import { useRecorder } from "./use-recorder";
 
@@ -16,6 +18,7 @@ type SendState =
   | { kind: "none" }
   | { kind: "uploading" }
   | { kind: "processing"; recordId: string }
+  | { kind: "savedOffline" }
   | { kind: "done"; recordId: string; result: ProcessResult }
   | { kind: "failed"; message: string; recordId: string | null };
 
@@ -30,8 +33,14 @@ function messageOf(err: unknown): string {
 
 export function Recorder() {
   const router = useRouter();
-  const { state, start, stop, reset } = useRecorder();
+  const { session } = useSession();
+  const { state, start, stop, reset: resetRecorder } = useRecorder();
   const [send, setSend] = useState<SendState>({ kind: "none" });
+  const clientIdRef = useRef<string | null>(null);
+  const reset = () => {
+    clientIdRef.current = null;
+    resetRecorder();
+  };
 
   // Avisa antes de fechar a aba com gravação ou envio em andamento.
   const busy = state.kind === "recording" || send.kind === "uploading" || send.kind === "processing";
@@ -54,11 +63,30 @@ export function Recorder() {
 
   async function upload() {
     if (state.kind !== "recorded") return;
+    // Um id por gravação: tentar de novo (ou sincronizar depois) não duplica.
+    clientIdRef.current ??= crypto.randomUUID();
+    const clientId = clientIdRef.current;
     setSend({ kind: "uploading" });
     let recordId: string;
     try {
-      recordId = await createRecordFromAudio(state.blob, state.seconds);
+      recordId = await createRecordFromAudio(state.blob, state.seconds, { clientId, recordedAt: state.startedAt });
     } catch (err) {
+      if (err instanceof OfflineError && session) {
+        try {
+          await saveDraft({
+            clientId,
+            userId: session.user.id,
+            blob: state.blob,
+            durationSeconds: state.seconds,
+            recordedAt: state.startedAt,
+            attempts: 0,
+          });
+          setSend({ kind: "savedOffline" });
+          return;
+        } catch {
+          // IndexedDB indisponível (ex.: navegação privada): cai no erro abaixo
+        }
+      }
       setSend({ kind: "failed", message: messageOf(err), recordId: null });
       return;
     }
@@ -66,6 +94,20 @@ export function Recorder() {
   }
 
   // --- Envio / IA ---------------------------------------------------------
+  if (send.kind === "savedOffline") {
+    return (
+      <div className="flex flex-col gap-4 py-8 text-center">
+        <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100">
+          <strong className="block text-base">Gravação salva no aparelho</strong>
+          Sem internet agora. Ela será enviada para a IA automaticamente quando a conexão voltar.
+        </p>
+        <Link href="/" className={`${primary} text-center`}>
+          Voltar à linha do tempo
+        </Link>
+      </div>
+    );
+  }
+
   if (send.kind === "uploading" || send.kind === "processing") {
     return (
       <div className="flex flex-col items-center gap-4 py-16 text-center">

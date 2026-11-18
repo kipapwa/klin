@@ -23,12 +23,72 @@ const DISCREET_TITLE = "Klin";
 const DISCREET_BODY = "Hora da sua medicação programada.";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-self.addEventListener("install", () => {
-  self.skipWaiting();
+// ---------------------------------------------------------------------
+// Cache do app (modo offline). SÓ arquivos do próprio site: páginas,
+// JavaScript, CSS e ícones — que não contêm dados de saúde (as telas são
+// montadas no aparelho). Pedidos ao Supabase (outra origem) nunca passam
+// por aqui. Trocar CACHE_VERSION apaga os caches antigos.
+// ---------------------------------------------------------------------
+const CACHE_VERSION = "klin-v1";
+const APP_PAGES = ["", "gravar/", "medicamentos/", "medicamentos/detalhe/", "medicamentos/editar/", "registro/", "ajustes/", "entrar/"];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(CACHE_VERSION)
+      .then((cache) => cache.addAll([...APP_PAGES.map(inScope), inScope("manifest.webmanifest"), inScope("icons/icon-192.png")]))
+      .catch(() => {}) // sem rede na instalação: o cache se forma com o uso
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
+});
+
+async function putInCache(request, response) {
+  if (response.ok && response.type === "basic") {
+    const cache = await caches.open(CACHE_VERSION);
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
+
+/** Arquivos com hash no nome nunca mudam: cache primeiro. */
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  return cached ?? putInCache(request, await fetch(request));
+}
+
+/** Páginas e dados de navegação: rede primeiro (versão nova), cache se offline. */
+async function networkFirst(request) {
+  try {
+    return await putInCache(request, await fetch(request));
+  } catch (err) {
+    const cached = (await caches.match(request)) ?? (await caches.match(request, { ignoreSearch: true }));
+    if (cached) return cached;
+    if (request.mode === "navigate") {
+      const home = await caches.match(inScope(""));
+      if (home) return home;
+    }
+    throw err;
+  }
+}
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET" || !request.url.startsWith(self.registration.scope)) return;
+  const path = new URL(request.url).pathname;
+  if (path.includes("/_next/static/") || path.includes("/icons/")) {
+    event.respondWith(cacheFirst(request));
+  } else {
+    event.respondWith(networkFirst(request));
+  }
 });
 
 /** URL absoluta dentro do escopo do app (o basePath já está no escopo). */

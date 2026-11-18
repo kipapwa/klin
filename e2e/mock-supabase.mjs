@@ -57,15 +57,34 @@ export function startSupabase(port) {
 
     if (p === "/rest/v1/medical_records") {
       if (req.method === "GET") {
-        const id = url.searchParams.get("id")?.replace("eq.", "");
-        if (id) {
-          const r = state.records.find((x) => x.id === id);
+        const idParam = url.searchParams.get("id") ?? "";
+        const id = idParam.startsWith("eq.") ? idParam.slice(3) : null;
+        const clientId = url.searchParams.get("client_id")?.replace("eq.", "");
+        if (id || clientId) {
+          const r = state.records.find((x) => (id ? x.id === id : x.client_id === clientId));
           return one ? (r ? send(res, 200, r) : send(res, 406, { code: "PGRST116" })) : send(res, 200, r ? [r] : []);
         }
-        return send(res, 200, [...state.records].sort((a, b) => b.recorded_at.localeCompare(a.recorded_at)));
+        // Filtros da linha do tempo / relatório: in.(a,b) e wfts(portuguese).termo
+        const inList = (k) => url.searchParams.get(k)?.match(/^in\.\((.*)\)$/)?.[1].split(",").map((v) => v.replace(/"/g, ""));
+        const ids = inList("id");
+        const cats = inList("category");
+        const sevs = inList("severity");
+        const search = url.searchParams.get("search")?.replace(/^wfts\(portuguese\)\./, "").toLowerCase();
+        state.calls.push(`GET medical_records ${url.searchParams.toString()}`);
+        const rows = state.records.filter(
+          (r) =>
+            (!ids || ids.includes(r.id)) &&
+            (!cats || cats.includes(r.category)) &&
+            (!sevs || sevs.includes(r.severity)) &&
+            (!search || `${r.title} ${r.chief_complaint}`.toLowerCase().includes(search)),
+        );
+        return send(res, 200, rows.sort((a, b) => b.recorded_at.localeCompare(a.recorded_at)));
       }
       if (req.method === "POST") {
         const b = JSON.parse(raw);
+        if (b.client_id && state.records.some((r) => r.client_id === b.client_id)) {
+          return send(res, 409, { code: "23505", message: "duplicate key value violates unique constraint" });
+        }
         const rec = {
           id: crypto.randomUUID(), title: null, recorded_at: new Date().toISOString(), category: "symptom", severity: "routine",
           chief_complaint: null, history: null, observations: null, plan: null, transcript: null, icd10_codes: [], alert_signs: [],
@@ -166,6 +185,7 @@ export function startSupabase(port) {
     }
     if (p.startsWith("/storage/v1/object/audio/") && req.method === "POST") {
       const key = decodeURIComponent(p.replace("/storage/v1/object/audio/", ""));
+      if (state.uploads[key]) return send(res, 400, { statusCode: "409", error: "Duplicate", message: "The resource already exists" });
       state.uploads[key] = { data: raw, type: req.headers["content-type"], size: raw.length };
       return send(res, 200, { Key: `audio/${key}`, Id: crypto.randomUUID() });
     }
@@ -217,5 +237,5 @@ export function startStatic(dir, port) {
         res.end("404");
       }
     }
-  }).listen(port, "127.0.0.1", ok));
+  }).listen(port, ok)); // todas as interfaces (IPv4 e IPv6): o teste usa "localhost"
 }

@@ -7,7 +7,7 @@ export type RecorderState =
   | { kind: "idle" }
   | { kind: "requesting" }
   | { kind: "recording"; seconds: number }
-  | { kind: "recorded"; blob: Blob; url: string; seconds: number }
+  | { kind: "recorded"; blob: Blob; url: string; seconds: number; startedAt: string }
   | { kind: "unsupported" }
   | { kind: "error"; message: string };
 
@@ -75,7 +75,7 @@ export function useRecorder() {
       releaseDevices();
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       urlRef.current = URL.createObjectURL(blob);
-      setState({ kind: "recorded", blob, url: urlRef.current, seconds });
+      setState({ kind: "recorded", blob, url: urlRef.current, seconds, startedAt: new Date(startedAtRef.current).toISOString() });
     };
     recorderRef.current = recorder;
     startedAtRef.current = Date.now();

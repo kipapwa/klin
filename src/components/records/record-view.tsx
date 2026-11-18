@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Spinner } from "@/components/ui/spinner";
+import { exportReport } from "@/lib/export-report";
 import { buildFollowUpIcs, downloadIcs } from "@/lib/ics";
 import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, intervalText, STATUS_LABEL } from "@/lib/labels";
 import { deleteRecord, getRecord, processRecord, signedAudioUrl, UserFacingError } from "@/lib/records";
@@ -49,7 +50,7 @@ export function RecordView() {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "audio" | "ai" | "delete">(null);
+  const [busy, setBusy] = useState<null | "audio" | "ai" | "delete" | "pdf">(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -243,6 +244,24 @@ export function RecordView() {
           {actionError}
         </p>
       ) : null}
+
+      <button
+        type="button"
+        disabled={busy !== null}
+        onClick={async () => {
+          setBusy("pdf");
+          setActionError(null);
+          try {
+            await exportReport([record.id], null);
+          } catch (err) {
+            setActionError(err instanceof UserFacingError ? err.message : "Não foi possível gerar o PDF.");
+          }
+          setBusy(null);
+        }}
+        className="rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"
+      >
+        {busy === "pdf" ? "Gerando PDF…" : "Baixar relatório em PDF"}
+      </button>
 
       <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
         <span>{record.ai_provider && record.ai_provider !== "manual" ? `Estruturado por IA (${record.ai_provider})` : ""}</span>

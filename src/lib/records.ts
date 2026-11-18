@@ -1,7 +1,14 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { baseMime, extensionFor, MAX_UPLOAD_BYTES } from "./audio";
 import { getSupabase } from "./supabase";
-import type { MedicalRecord, MedicalRecordSummary, Medication, ProcessResult } from "./types";
+import type {
+  MedicalRecord,
+  MedicalRecordSummary,
+  Medication,
+  ProcessResult,
+  RecordCategory,
+  RecordSeverity,
+} from "./types";
 
 const SUMMARY_COLUMNS = "id, title, recorded_at, category, severity, status, chief_complaint";
 const RECORD_COLUMNS =
@@ -11,12 +18,34 @@ const RECORD_COLUMNS =
 /** Erro com mensagem já pronta para mostrar ao usuário (sem dados clínicos). */
 export class UserFacingError extends Error {}
 
-export async function listRecords(limit = 50): Promise<MedicalRecordSummary[]> {
-  const { data, error } = await getSupabase()
-    .from("medical_records")
-    .select(SUMMARY_COLUMNS)
-    .order("recorded_at", { ascending: false })
-    .limit(limit);
+/** Sem conexão: o chamador pode guardar a gravação no aparelho e tentar depois. */
+export class OfflineError extends UserFacingError {
+  constructor() {
+    super("Sem conexão com a internet.");
+  }
+}
+
+/** Erros de rede do fetch: Chrome ("Failed to fetch"), Firefox ("NetworkError"), Safari ("Load failed"). */
+export function isNetworkFailure(err: unknown): boolean {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  const text = err instanceof Error ? `${err.name} ${err.message}` : typeof err === "object" && err ? JSON.stringify(err) : String(err);
+  return /Failed to fetch|NetworkError|Load failed|network/i.test(text);
+}
+
+export interface RecordFilters {
+  categories?: RecordCategory[];
+  severities?: RecordSeverity[];
+  /** Busca em português no título e nas seções da nota (índice `search`). */
+  query?: string;
+}
+
+export async function listRecords(filters: RecordFilters = {}, limit = 200): Promise<MedicalRecordSummary[]> {
+  let q = getSupabase().from("medical_records").select(SUMMARY_COLUMNS);
+  if (filters.categories?.length) q = q.in("category", filters.categories);
+  if (filters.severities?.length) q = q.in("severity", filters.severities);
+  const text = filters.query?.trim().slice(0, 100);
+  if (text) q = q.textSearch("search", text, { config: "portuguese", type: "websearch" });
+  const { data, error } = await q.order("recorded_at", { ascending: false }).limit(limit);
   if (error) throw new UserFacingError("Não foi possível carregar os registros.");
   return data as MedicalRecordSummary[];
 }
@@ -38,41 +67,72 @@ export async function getRecord(id: string): Promise<{ record: MedicalRecord; me
   return { record: rec.data as unknown as MedicalRecord, medications: (meds.data ?? []) as Medication[] };
 }
 
+/** Registros completos para o relatório (até 200, mais recentes primeiro). */
+export async function getRecordsForReport(ids: string[]): Promise<MedicalRecord[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await getSupabase()
+    .from("medical_records")
+    .select(RECORD_COLUMNS)
+    .in("id", ids.slice(0, 200))
+    .order("recorded_at", { ascending: false });
+  if (error) throw new UserFacingError("Não foi possível montar o relatório.");
+  return data as unknown as MedicalRecord[];
+}
+
 /**
  * Envia o áudio ao bucket privado (pasta do usuário) e cria o registro em
- * rascunho. Se a criação falhar, apaga o áudio enviado.
+ * rascunho. Idempotente pelo `clientId`: reenviar uma gravação offline que já
+ * tinha chegado (áudio ou registro) não duplica nada.
+ * Sem rede, lança OfflineError.
  */
-export async function createRecordFromAudio(audio: Blob, durationSeconds: number): Promise<string> {
-  const supabase = getSupabase();
-  const { data: auth } = await supabase.auth.getUser();
-  const userId = auth.user?.id;
-  if (!userId) throw new UserFacingError("Sessão expirada. Entre novamente.");
+export async function createRecordFromAudio(
+  audio: Blob,
+  durationSeconds: number,
+  opts: { clientId: string; recordedAt?: string },
+): Promise<string> {
   if (audio.size === 0) throw new UserFacingError("A gravação ficou vazia. Tente de novo.");
   if (audio.size > MAX_UPLOAD_BYTES) throw new UserFacingError("A gravação ficou grande demais (máx. 25 MB).");
+  if (typeof navigator !== "undefined" && navigator.onLine === false) throw new OfflineError();
+
+  const supabase = getSupabase();
+  // getSession lê a sessão salva (sem rede); o servidor confere o token de qualquer forma.
+  const userId = (await supabase.auth.getSession()).data.session?.user.id;
+  if (!userId) throw new UserFacingError("Sessão expirada. Entre novamente.");
 
   const mime = baseMime(audio.type);
-  const clientId = crypto.randomUUID();
-  const path = `${userId}/${clientId}.${extensionFor(mime)}`;
+  const path = `${userId}/${opts.clientId}.${extensionFor(mime)}`;
 
   const upload = await supabase.storage.from("audio").upload(path, audio, { contentType: mime, upsert: false });
-  if (upload.error) throw new UserFacingError("Não foi possível enviar o áudio. Verifique a conexão.");
+  if (upload.error) {
+    const already = /duplicate|already exists/i.test(upload.error.message) || (upload.error as { statusCode?: string }).statusCode === "409";
+    if (!already) {
+      if (isNetworkFailure(upload.error)) throw new OfflineError();
+      throw new UserFacingError("Não foi possível enviar o áudio. Verifique a conexão.");
+    }
+  }
 
   const { data, error } = await supabase
     .from("medical_records")
     .insert({
-      client_id: clientId,
+      client_id: opts.clientId,
       audio_path: path,
       audio_mime_type: mime,
       audio_duration_s: Math.round(durationSeconds),
       status: "draft",
+      ...(opts.recordedAt ? { recorded_at: opts.recordedAt } : {}),
     })
     .select("id")
     .single();
-  if (error || !data) {
-    await supabase.storage.from("audio").remove([path]);
-    throw new UserFacingError("Não foi possível salvar o registro.");
+  if (!error && data) return data.id as string;
+
+  // Já criado numa tentativa anterior (unique user_id + client_id).
+  if (error?.code === "23505") {
+    const existing = await supabase.from("medical_records").select("id").eq("client_id", opts.clientId).maybeSingle();
+    if (existing.data) return existing.data.id as string;
   }
-  return data.id as string;
+  if (isNetworkFailure(error)) throw new OfflineError();
+  await supabase.storage.from("audio").remove([path]);
+  throw new UserFacingError("Não foi possível salvar o registro.");
 }
 
 /** Chama a Edge Function que estrutura a nota (Gemini, com Groq de reserva). */

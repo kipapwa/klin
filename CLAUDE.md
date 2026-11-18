@@ -44,6 +44,13 @@ Atue como um Engenheiro de Software Sênior e Arquiteto de Sistemas Full-Stack e
   - O texto (discreto × detalhado) sai de `dosePayload` (`_shared/reminders.ts`), conforme `profiles.notification_privacy`.
   - Inscrição do aparelho: `src/lib/push.ts` → RPC `register_push_subscription`. Sair da conta chama `forgetThisDevice()`.
   - E2E: o push é entregue ao `sw.js` real via CDP (`ServiceWorker.deliverPushMessage`). Isso exige o Chromium completo (`channel: "chromium"`), porque o headless shell não exibe notificações. A inscrição em si é simulada, pois não há FCM no teste.
+- *Fase 6:*
+  - **Linha do tempo:** a página `/` (`timeline-screen.tsx` + `record-list.tsx`) aplica no banco os filtros de categoria e gravidade e a busca `textSearch` no índice `search` (português). Os filtros ficam só no estado da tela.
+  - **PDF:** conteúdo em `lib/report.ts` (puro, testado; `pdfSafe` limita o texto ao Latin-1 das fontes padrão) e desenho em `lib/report-pdf.ts` (jsPDF com `import()` dinâmico).
+  - **Bloqueio:** `lib/pin.ts` (PBKDF2) + `lib/app-lock.ts` (estado via `useSyncExternalStore`; trava ao abrir e após 1 min em segundo plano) + `components/lock/lock-gate.tsx`, dentro do `AppShell`.
+  - **Offline:** `lib/offline-store.ts` (IndexedDB) + `lib/sync.ts` (envio em ordem, uma execução por vez) + `components/offline/*`. `createRecordFromAudio` exige um `clientId` e é idempotente: áudio duplicado no Storage e `23505` no insert são tratados como "já enviado". Sem rede, lança `OfflineError`. O `public/sw.js` agora faz cache: cache-first para `/_next/static/` e `/icons/`, network-first para o resto do mesmo site. Ao mudar a estratégia, troque `CACHE_VERSION`.
+  - **Sair da conta** (`AppShell.signOut`): desinscreve o push, apaga o PIN e os rascunhos (com aviso se houver pendentes).
+  - **E2E:** `ctx.setOffline` testa o modo offline. O autenticador virtual da WebAuthn vem do CDP. O site de teste roda em `localhost`, porque a WebAuthn não aceita IP como domínio.
 - *Limitação conhecida:* no export estático, o pré-carregamento do Next 16.4 pede `<rota>/__next.<rota>.__PAGE__.txt` e recebe 404 (o build grava `__next.<rota>/__PAGE__.txt`). A navegação funciona; não "corrigir" mexendo no `out/`.
 - *CSP:* `<meta>` gerada por `src/lib/csp.ts`. Um novo domínio chamado pelo navegador precisa entrar nela; as chamadas às IAs saem da Edge Function e não entram.
 - *Banco:* toda tabela tem `user_id default auth.uid()` + RLS. As relações usam FK composta `(id, user_id)`. Os gatilhos calculam `medications.ends_at`/`next_dose_at` e avançam `next_dose_at` ao inserir em `medication_logs`. As colunas `client_id` existem para a sincronização offline idempotente.

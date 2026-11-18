@@ -6,6 +6,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { deviceTimeZone, getProfile, updateProfile, type NotificationPrivacy, type Profile } from "@/lib/profile";
 import { devicePushState, disablePush, enablePush, sendTestNotification, type DevicePushState } from "@/lib/push";
 import { UserFacingError } from "@/lib/records";
+import { LockSettings } from "./lock-settings";
 
 const button =
   "rounded-xl border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800";
@@ -191,6 +192,10 @@ export function SettingsView() {
             ) : null}
           </div>
         )}
+      </Card>
+
+      <Card title="Bloqueio do app">
+        <LockSettings onNotice={(tone, text) => setNotice({ tone, text })} />
       </Card>
 
       <Card title="Conta">

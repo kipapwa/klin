@@ -50,4 +50,14 @@ Estas regras valem para todo código do repositório e têm prioridade sobre con
 ## 6. Navegador
 
 - O GitHub Pages não permite cabeçalhos próprios. A CSP vai numa `<meta>` (`src/lib/csp.ts`); `frame-ancestors`, `X-Frame-Options` e `Permissions-Policy` não podem ser aplicados. HTTPS é garantido pelo próprio GitHub Pages ("Enforce HTTPS").
-- O bloqueio de tela por PIN guarda apenas um hash derivado com PBKDF2 e sal aleatório, nunca o PIN.
+- **Bloqueio de tela (PIN/biometria)** — `src/lib/app-lock.ts`:
+  - guarda só um hash PBKDF2-SHA256 (600 mil iterações, sal aleatório), nunca o PIN; recusa repetições e sequências;
+  - após 5 erros seguidos, espera crescente (30 s até 15 min); com 10 erros, sai da conta;
+  - a biometria usa WebAuthn com o autenticador do próprio aparelho (`userVerification: "required"`);
+  - **limite assumido:** é uma barreira contra quem pega o celular desbloqueado, não criptografia. Alguém com acesso técnico ao aparelho pode descobrir um PIN curto por força bruta a partir do hash. A proteção dos dados continua sendo a sessão + RLS, e a sessão pode ser encerrada pelo login.
+- **Modo offline:**
+  - gravações sem internet ficam no IndexedDB do aparelho (sem criptografia própria, protegidas pelo sistema do aparelho) só até serem enviadas;
+  - ao sair da conta, as pendentes são apagadas, com aviso antes;
+  - o Service Worker guarda em cache apenas os arquivos do próprio site (páginas, JS, CSS, ícones), que não contêm dados de saúde; pedidos ao Supabase nunca são guardados.
+- **Relatório PDF:** gerado no aparelho (jsPDF, carregado sob demanda); os dados não passam por nenhum serviço externo. A transcrição bruta fica fora do relatório, e o nome do arquivo não leva dado clínico.
+- **Nada clínico na URL:** o termo de busca da linha do tempo e os nomes de remédios não vão para a URL (o GitHub Pages recebe a query string).

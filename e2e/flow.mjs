@@ -40,15 +40,16 @@ const FAKE_PUSH = `
   const fakeSub = {
     endpoint: "https://push.exemplo/aparelho-e2e",
     toJSON() { return { endpoint: this.endpoint, keys: { p256dh: "${VAPID_TEST_KEY}", auth: "BTBZMqHH6r4Tts7J_aSIgg" } }; },
-    async unsubscribe() { window.__fakeSub = null; return true; },
+    async unsubscribe() { sessionStorage.removeItem("fakeSub"); return true; },
   };
   // O headless informa "denied" mesmo com a permissão concedida no contexto.
   Object.defineProperty(Notification, "permission", { get: () => "granted" });
   Notification.requestPermission = async () => "granted";
-  PushManager.prototype.getSubscription = async function () { return window.__fakeSub ?? null; };
+  // Como no navegador real, a inscrição sobrevive a recarregar a página.
+  PushManager.prototype.getSubscription = async function () { return sessionStorage.getItem("fakeSub") ? fakeSub : null; };
   PushManager.prototype.subscribe = async function (opts) {
     window.__subscribeKeyLength = new Uint8Array(opts.applicationServerKey).length;
-    window.__fakeSub = fakeSub;
+    sessionStorage.setItem("fakeSub", "1");
     return fakeSub;
   };
 `;
@@ -77,11 +78,13 @@ page.on("console", (m) => {
   const text = m.text();
   // 404 é conferido pela URL acima (o console não diz qual recurso falhou).
   if (/Failed to load resource: .* 404/.test(text)) return;
+  // Esperado no trecho do modo offline.
+  if (/ERR_INTERNET_DISCONNECTED/.test(text)) return;
   if (m.type() === "error" || /Content Security Policy/i.test(text)) problems.push(text);
 });
 page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
 const step = (s) => console.log("OK  " + s);
-const BASE = "http://127.0.0.1:3210";
+const BASE = "http://localhost:3210"; // WebAuthn não aceita IP como domínio
 
 try {
   await page.goto(BASE + "/");
@@ -203,6 +206,67 @@ try {
   await page.screenshot({ path: `${shots}/9-detalhe.png`, fullPage: true });
   step("detalhe: histórico, adesão e lembretes");
 
+  // --- Linha do tempo: filtros e busca -------------------------------------
+  await page.click("nav >> text=Registros");
+  await page.waitForSelector("text=novembro de 2026");
+  await page.click("[aria-label='Filtrar por categoria'] >> text=Exames");
+  await page.waitForSelector("text=Nenhum registro com esses filtros.");
+  if (!state.calls.some((c) => c.includes("category=in.%28exam%29"))) throw new Error("filtro não foi enviado ao banco");
+  await page.click("text=Limpar filtros");
+  await page.fill("[aria-label='Buscar nos registros']", "peito");
+  await page.click("button:has-text('Buscar')");
+  await page.waitForSelector("a[href*='/registro/'] >> text=Dor no peito ao subir escadas");
+  if (page.url().includes("peito")) throw new Error("termo de busca vazou para a URL");
+  await page.fill("[aria-label='Buscar nos registros']", "joelho");
+  await page.click("button:has-text('Buscar')");
+  await page.waitForSelector("text=Nenhum registro com esses filtros.");
+  await page.click("text=Limpar filtros");
+  await page.waitForSelector("a[href*='/registro/']");
+  await page.screenshot({ path: `${shots}/11-linha-do-tempo.png`, fullPage: true });
+  step("linha do tempo: filtros por categoria e busca no texto");
+
+  // --- Relatório PDF ---------------------------------------------------------
+  const pdfDownload = page.waitForEvent("download");
+  await page.click("text=Relatório PDF");
+  const pdfFile = await pdfDownload;
+  const pdfText = (await import("node:fs")).readFileSync(await pdfFile.path(), "latin1");
+  if (!pdfText.startsWith("%PDF") || !/klin-relatorio-\d{4}-\d{2}-\d{2}\.pdf/.test(pdfFile.suggestedFilename())) {
+    throw new Error("PDF inválido: " + pdfFile.suggestedFilename());
+  }
+  for (const expected of ["Dor no peito ao subir escadas", "Losartana", "R07.4", "Medicamentos em uso"]) {
+    if (!pdfText.includes(expected)) throw new Error(`PDF sem "${expected}"`);
+  }
+  if (pdfText.includes("Estou com dor no peito")) throw new Error("a transcrição bruta não deveria ir ao PDF");
+  (await import("node:fs")).copyFileSync(await pdfFile.path(), `${shots}/relatorio.pdf`);
+  step(`relatório PDF gerado no aparelho (${pdfFile.suggestedFilename()})`);
+
+  // --- Modo offline ------------------------------------------------------------
+  await ctx.setOffline(true);
+  await page.click("a[href$='/gravar/']");
+  await page.waitForSelector("[aria-label='Começar a gravar']");
+  await page.waitForSelector("text=Sem internet. Você pode gravar");
+  await page.click("[aria-label='Começar a gravar']");
+  await page.waitForSelector("[role=timer]");
+  await page.waitForTimeout(1500);
+  await page.click("[aria-label='Parar gravação']");
+  await page.click("text=Enviar para a IA");
+  await page.waitForSelector("text=Gravação salva no aparelho");
+  const recordsBefore = state.records.length;
+  await page.click("text=Voltar à linha do tempo");
+  await page.waitForSelector("text=1 gravação aguardando envio");
+  await page.screenshot({ path: `${shots}/12-offline.png`, fullPage: true });
+  if (state.records.length !== recordsBefore) throw new Error("não deveria ter enviado sem internet");
+  step("sem internet: gravação guardada no aparelho");
+
+  await ctx.setOffline(false);
+  await page.waitForSelector("text=gravação aguardando envio", { state: "detached", timeout: 15_000 });
+  const synced = state.records.at(-1);
+  if (state.records.length !== recordsBefore + 1 || !synced.client_id || !synced.recorded_at || synced.status !== "ready") {
+    throw new Error("sincronização errada: " + JSON.stringify(synced));
+  }
+  if (Date.now() - Date.parse(synced.recorded_at) < 1000) throw new Error("recorded_at deveria ser a hora da gravação, não a do envio");
+  step("conexão voltou: enviada sozinha (horário original) e processada pela IA");
+
   // --- Ajustes: notificações e privacidade --------------------------------
   await page.click("nav >> text=Ajustes");
   await page.waitForURL("**/ajustes/");
@@ -259,8 +323,50 @@ try {
   }
   step("Service Worker exibe o push com o botão \"Marcar como tomado\"");
 
+  // --- Bloqueio por PIN e biometria ------------------------------------------
+  // Autenticador virtual de plataforma (digital/rosto) pelo DevTools.
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true },
+  });
+  await page.reload();
+  await page.waitForSelector("text=Criar PIN");
+  await page.click("text=Criar PIN");
+  await page.fill("#new-pin", "1234");
+  await page.fill("#confirm-pin", "1234");
+  await page.click("text=Salvar PIN");
+  await page.waitForSelector("text=Evite sequências");
+  await page.fill("#new-pin", "2580");
+  await page.fill("#confirm-pin", "2580");
+  await page.click("text=Salvar PIN");
+  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  const stored = await page.evaluate(() => localStorage.getItem("klin:lock"));
+  if (!stored || stored.includes("2580")) throw new Error("PIN guardado em texto puro: " + stored);
+  await page.click("[role=switch][aria-label='Desbloquear com digital ou rosto']");
+  await page.waitForSelector("text=Biometria ativada.");
+  step("PIN criado (só o hash fica no aparelho) e biometria registrada");
+
+  await page.click("text=Bloquear agora");
+  await page.waitForSelector("text=App bloqueado");
+  if (await page.locator("nav").count()) throw new Error("conteúdo visível com o app bloqueado");
+  await page.fill("#unlock-pin", "1111");
+  await page.click("text=Desbloquear");
+  await page.waitForSelector("text=PIN incorreto. 9 tentativas restantes");
+  await page.screenshot({ path: `${shots}/13-bloqueio.png` });
+  await page.click("text=Usar digital / rosto");
+  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  step("bloqueio: PIN errado recusado, desbloqueio por biometria");
+
+  await page.reload();
+  await page.waitForSelector("text=App bloqueado");
+  await page.fill("#unlock-pin", "2580");
+  await page.click("text=Desbloquear");
+  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  step("ao reabrir o app pede o PIN; PIN certo desbloqueia");
+
   await page.click("text=Sair");
   await page.waitForURL("**/entrar/");
+  if (await page.evaluate(() => localStorage.getItem("klin:lock"))) throw new Error("PIN ficou no aparelho após sair");
   if (state.subs.length !== 0 || !state.calls.includes("DELETE push_subscriptions")) throw new Error("sair não removeu a inscrição do aparelho");
   step("sair remove a inscrição deste aparelho");
   await page.goto(BASE + "/");
