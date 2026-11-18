@@ -346,6 +346,96 @@ create table if not exists public.push_subscriptions (
 create index if not exists push_subscriptions_user_idx
   on public.push_subscriptions (user_id);
 
+-- Inscreve ESTE aparelho para o usuário logado. Se o mesmo aparelho estava
+-- inscrito para outra conta (troca de usuário), a inscrição antiga é removida:
+-- assim ninguém recebe lembretes de outra pessoa. Só quem tem o endpoint (o
+-- próprio aparelho) consegue fazer isso.
+create or replace function public.register_push_subscription(
+  p_endpoint text, p_p256dh text, p_auth text, p_user_agent text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user uuid := auth.uid();
+begin
+  if v_user is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+  delete from public.push_subscriptions where endpoint = p_endpoint and user_id <> v_user;
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
+  values (v_user, p_endpoint, p_p256dh, p_auth, left(p_user_agent, 300))
+  on conflict (user_id, endpoint) do update
+    set p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent;
+end;
+$$;
+
+revoke execute on function public.register_push_subscription(text, text, text, text) from public, anon;
+grant execute on function public.register_push_subscription(text, text, text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 6c. Disparo de lembretes (chamado pela Edge Function disparar-lembretes,
+-- com a chave secreta, a cada minuto pelo Supabase Cron).
+-- ---------------------------------------------------------------------
+alter table public.medications add column if not exists notified_for timestamptz;
+
+-- "Reserva" as doses a notificar agora e devolve uma linha por dose.
+-- A dose é calculada pela GRADE (starts_at + k × intervalo), não só por
+-- next_dose_at: se o usuário ignorou a dose anterior, next_dose_at fica parado,
+-- mas cada novo horário ainda recebe o próprio lembrete.
+-- notified_for impede notificar o mesmo horário duas vezes; doses com mais de
+-- 30 min (ex.: agendador fora do ar) não são notificadas atrasadas.
+create or replace function public.claim_due_doses()
+returns table (
+  medication_id uuid,
+  user_id uuid,
+  name text,
+  dosage text,
+  scheduled_for timestamptz,
+  privacy public.notification_privacy
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  return query
+  with due as (
+    select m.id,
+           m.starts_at + make_interval(secs =>
+             floor(extract(epoch from (now() + interval '1 minute' - m.starts_at)) / (m.interval_hours * 3600))
+             * m.interval_hours * 3600) as slot
+      from public.medications m
+     where m.is_active
+       and m.notifications_enabled
+       and m.next_dose_at is not null
+       and m.next_dose_at <= now() + interval '1 minute'
+       for update skip locked
+  ),
+  claimable as (
+    select d.id, d.slot
+      from due d
+      join public.medications m on m.id = d.id
+     where d.slot >= m.next_dose_at
+       and d.slot > now() - interval '30 minutes'
+       and (m.ends_at is null or d.slot <= m.ends_at)
+       and (m.notified_for is null or m.notified_for < d.slot)
+  )
+  update public.medications m
+     set notified_for = c.slot
+    from claimable c
+   where m.id = c.id
+  returning m.id, m.user_id, m.name, m.dosage, c.slot,
+            coalesce((select p.notification_privacy from public.profiles p where p.id = m.user_id),
+                     'discreet'::public.notification_privacy);
+end;
+$$;
+
+revoke execute on function public.claim_due_doses() from public, anon, authenticated;
+grant execute on function public.claim_due_doses() to service_role;
+
 -- ---------------------------------------------------------------------
 -- 6b. ai_usage — cota diária de processamentos por IA (contra abuso/custo)
 -- Sem políticas: o usuário não lê nem apaga linhas (não "zera" a cota).

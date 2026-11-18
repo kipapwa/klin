@@ -13,7 +13,7 @@ const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 
 const STUBS = `
-create role anon nologin; create role authenticated nologin;
+create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
 create schema auth; create schema storage;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable
@@ -28,8 +28,9 @@ create function storage.foldername(name text) returns text[] language sql immuta
   as $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
 grant all on storage.objects to authenticated;
 -- Como o Supabase: papéis da API recebem acesso a tudo que for criado em public.
-alter default privileges in schema public grant all on tables to anon, authenticated;
-alter default privileges in schema public grant execute on functions to anon, authenticated;
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+grant usage on schema public to service_role;
 `;
 
 let db;
@@ -132,6 +133,53 @@ test("cota de IA: limite de 24h e tabela inacessível ao usuário", async () => 
   await assert.rejects(as(A, "select * from public.ai_usage"), "não lê a cota");
   await assert.rejects(as(A, "delete from public.ai_usage"), "não zera a cota");
   assert.equal(await take(A), false, "continua bloqueado após tentativas de apagar");
+});
+
+test("inscrição push: troca de conta no mesmo aparelho remove a inscrição antiga", async () => {
+  const reg = (uid, ep) => as(uid, `select public.register_push_subscription('${ep}', 'chave', 'segredo', 'Teste/1.0')`);
+  await reg(A, "https://push.exemplo/aparelho-1");
+  await reg(A, "https://push.exemplo/aparelho-1"); // repetir não duplica
+  assert.equal((await as(A, "select * from public.push_subscriptions")).rows.length, 1);
+
+  await reg(B, "https://push.exemplo/aparelho-1"); // B entrou no mesmo aparelho
+  assert.equal((await as(A, "select * from public.push_subscriptions")).rows.length, 0, "A não recebe mais neste aparelho");
+  assert.equal((await as(B, "select * from public.push_subscriptions")).rows.length, 1);
+  await assert.rejects(reg(A, "http://inseguro"), "endpoint precisa ser https");
+});
+
+test("disparo de lembretes: uma notificação por horário, inclusive após dose ignorada", async () => {
+  const claim = async () => {
+    await db.exec("set role service_role;");
+    try {
+      return (await db.query("select * from public.claim_due_doses() order by name")).rows;
+    } finally {
+      await db.exec("reset role;");
+    }
+  };
+  await db.exec("update public.medications set notifications_enabled = false");
+  await as(A, "update public.profiles set notification_privacy = 'detailed' where id = auth.uid()");
+  const ins = (uid, name, startsAgo, extra = "") =>
+    as(uid, `insert into public.medications (name, dosage, interval_hours, starts_at${extra ? ", " + extra.split("=")[0] : ""})
+      values ('${name}', '1 cp', 8, now() - interval '${startsAgo}'${extra ? ", " + extra.split("=")[1] : ""}) returning id`);
+
+  const agora = (await ins(A, "Agora", "1 minute")).rows[0].id;
+  // Começou há 8h05: a dose das 0h (8h05 atrás) foi ignorada; a das 8h (5 min atrás) é a atual.
+  const ignorada = (await ins(A, "Ignorada", "8 hours 5 minutes")).rows[0].id;
+  // Simula a 1ª dose nunca registrada: next_dose_at parado no início.
+  await db.query(`update public.medications set next_dose_at = starts_at where id = '${ignorada}'`);
+  await ins(B, "Desligado", "1 minute", "notifications_enabled=false");
+  await ins(B, "Futuro", "-3 hours");
+
+  const first = await claim();
+  assert.deepEqual(first.map((r) => r.name), ["Agora", "Ignorada"]);
+  assert.equal(first[0].privacy, "detailed");
+  const slots = await db.query(`select id, starts_at, notified_for from public.medications where id in ('${agora}', '${ignorada}') order by name`);
+  assert.equal(slots.rows[0].notified_for.getTime(), slots.rows[0].starts_at.getTime(), "dose de agora");
+  assert.equal(slots.rows[1].notified_for - slots.rows[1].starts_at, 8 * 3.6e6, "dose atual da grade (início + 8h)");
+
+  assert.deepEqual(await claim(), [], "mesmo horário não é notificado de novo");
+
+  await assert.rejects(as(A, "select * from public.claim_due_doses()"), "usuário comum não chama o disparo");
 });
 
 test("reserva do registro para processamento (filtro usado pela Edge Function)", async () => {

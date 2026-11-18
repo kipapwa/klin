@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { RequireAuth } from "@/components/auth/require-auth";
 import { BottomNav } from "@/components/bottom-nav";
+import { forgetThisDevice } from "@/lib/push";
 import { getSupabase } from "@/lib/supabase";
 
 /** Moldura das telas logadas: cabeçalho + conteúdo. */
@@ -12,6 +13,8 @@ export function AppShell({ title, back, children }: { title?: string; back?: str
   const router = useRouter();
 
   async function signOut() {
+    // Este aparelho deixa de receber os lembretes desta conta.
+    await forgetThisDevice();
     await getSupabase().auth.signOut();
     router.replace("/entrar/");
   }

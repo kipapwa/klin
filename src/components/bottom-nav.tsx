@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/", label: "Registros", match: (p: string) => p === "/" || p.startsWith("/registro") || p.startsWith("/gravar") },
   { href: "/medicamentos/", label: "Medicamentos", match: (p: string) => p.startsWith("/medicamentos") },
+  { href: "/ajustes/", label: "Ajustes", match: (p: string) => p.startsWith("/ajustes") },
 ];
 
 export function BottomNav() {

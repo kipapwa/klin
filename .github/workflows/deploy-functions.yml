@@ -6,6 +6,11 @@
 #     SUPABASE_PROJECT_REF   (id do projeto, ex.: abcdefghijklmnop)
 #     GEMINI_API_KEY         (IA primária)
 #     GROQ_API_KEY           (IA de reserva — https://console.groq.com/keys)
+#     VAPID_PRIVATE_KEY      (do par gerado com: npx web-push generate-vapid-keys)
+#     CRON_SECRET            (valor longo e aleatório; o MESMO guardado no Vault, ver supabase/cron.sql)
+#   Variables:
+#     NEXT_PUBLIC_VAPID_PUBLIC_KEY (a mesma do site; vira VAPID_PUBLIC_KEY das funções)
+#     VAPID_SUBJECT          (ex.: mailto:voce@exemplo.com)
 #   Variables (opcionais):
 #     ALLOWED_ORIGINS        (ex.: https://usuario.github.io)
 #     GEMINI_MODEL, GROQ_TRANSCRIPTION_MODEL, GROQ_CHAT_MODEL, AI_TIMEOUT_MS, AI_DAILY_LIMIT
@@ -42,8 +47,15 @@ jobs:
         with:
           node-version: 24
 
-      - name: Testes das funções
+      - name: Testes das funções (Node)
         run: node --test "supabase/functions/_shared/*.test.ts"
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Testes das funções (Deno, o mesmo runtime das Edge Functions)
+        run: deno test --no-check --config supabase/functions/deno.json supabase/functions/_shared/
 
       - uses: supabase/setup-cli@v1
         with:
@@ -59,7 +71,14 @@ jobs:
           GROQ_CHAT_MODEL: ${{ vars.GROQ_CHAT_MODEL }}
           AI_TIMEOUT_MS: ${{ vars.AI_TIMEOUT_MS }}
           AI_DAILY_LIMIT: ${{ vars.AI_DAILY_LIMIT }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
         run: |
+          if [ -z "$VAPID_PRIVATE_KEY" ] || [ -z "$VAPID_PUBLIC_KEY" ] || [ -z "$VAPID_SUBJECT" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::warning::Faltam VAPID_PRIVATE_KEY/CRON_SECRET (secrets) ou NEXT_PUBLIC_VAPID_PUBLIC_KEY/VAPID_SUBJECT (variables): lembretes por push desligados."
+          fi
           if [ -z "$GEMINI_API_KEY" ]; then
             echo "::warning::Falta o segredo GEMINI_API_KEY: só o Groq será usado."
           fi
@@ -73,11 +92,16 @@ jobs:
           envfile="$(mktemp)"
           trap 'rm -f "$envfile"' EXIT
           for name in GEMINI_API_KEY GROQ_API_KEY ALLOWED_ORIGINS GEMINI_MODEL \
-                      GROQ_TRANSCRIPTION_MODEL GROQ_CHAT_MODEL AI_TIMEOUT_MS AI_DAILY_LIMIT; do
+                      GROQ_TRANSCRIPTION_MODEL GROQ_CHAT_MODEL AI_TIMEOUT_MS AI_DAILY_LIMIT \
+                      VAPID_PRIVATE_KEY VAPID_PUBLIC_KEY VAPID_SUBJECT CRON_SECRET; do
             value="${!name}"
             if [ -n "$value" ]; then printf '%s=%s\n' "$name" "$value" >> "$envfile"; fi
           done
           supabase secrets set --project-ref "$PROJECT_REF" --env-file "$envfile"
 
       - name: Publicar funções
-        run: supabase functions deploy processar-registro --project-ref "$PROJECT_REF" --use-api
+        run: |
+          supabase functions deploy processar-registro --project-ref "$PROJECT_REF" --use-api
+          supabase functions deploy testar-notificacao --project-ref "$PROJECT_REF" --use-api
+          # Chamada pelo Supabase Cron, sem usuário: protegida pelo x-cron-secret.
+          supabase functions deploy disparar-lembretes --project-ref "$PROJECT_REF" --use-api --no-verify-jwt

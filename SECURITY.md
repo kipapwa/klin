@@ -35,7 +35,9 @@ Estas regras valem para todo código do repositório e têm prioridade sobre con
 
 - Nunca registrar transcrições, notas, nomes de remédios ou respostas da IA em `console.log`, mensagens de erro devolvidas ao cliente, analytics ou ferramentas de monitoramento. Logs carregam apenas ids, nome da IA, status HTTP e códigos de erro (há teste para isso em `ai.test.ts`).
 - O Gemini é chamado por `generateContent` (sem estado guardado no Google), não pela Interactions API, que armazena as interações por padrão.
-- Notificações push usam o modo discreto por padrão ("Hora da sua medicação programada"); o nome do remédio só aparece se o usuário escolher.
+- Notificações push usam o modo discreto por padrão ("Hora da sua medicação programada"); o nome do remédio só aparece se o usuário escolher (Ajustes). O conteúdo do push é cifrado ponta a ponta (RFC 8291) para o aparelho: o serviço de push (Google/Apple/Mozilla) não lê o texto nem o id do remédio.
+- Ao sair da conta, a inscrição push daquele aparelho é apagada; ao entrar com outra conta no mesmo aparelho, `register_push_subscription` remove a inscrição da conta anterior. Ninguém recebe lembretes de outra pessoa.
+- `disparar-lembretes` não tem login (é chamada pelo Supabase Cron). Ela é protegida pelo `CRON_SECRET`, comparado em tempo constante, e guardado no Vault do Supabase, nunca em arquivo do repositório. A função só chama `claim_due_doses()` (permitido apenas para `service_role`) e lê as inscrições dos donos dessas doses.
 - Dados guardados offline (IndexedDB) ficam apenas no aparelho e são apagados após sincronizar ou ao sair da conta.
 
 ## 5. Entradas

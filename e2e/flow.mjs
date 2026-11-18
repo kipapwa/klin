@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { startStatic, startSupabase, state } from "./mock-supabase.mjs";
 
+const VAPID_TEST_KEY = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const outDir = fileURLToPath(new URL("../out", import.meta.url));
 const shots = fileURLToPath(new URL("./shots", import.meta.url));
@@ -27,8 +28,30 @@ execSync("npm run build", {
     NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "chave-de-teste",
     NEXT_PUBLIC_BASE_PATH: "",
+    // Ponto P-256 válido (do exemplo da RFC 8291); só a pública vai ao site.
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY: VAPID_TEST_KEY,
   },
 });
+
+// O Chromium sem interface não tem serviço de push (FCM): a inscrição é
+// simulada na página. O Service Worker é o real (public/sw.js) e recebe um
+// push de verdade pelo protocolo do DevTools mais abaixo.
+const FAKE_PUSH = `
+  const fakeSub = {
+    endpoint: "https://push.exemplo/aparelho-e2e",
+    toJSON() { return { endpoint: this.endpoint, keys: { p256dh: "${VAPID_TEST_KEY}", auth: "BTBZMqHH6r4Tts7J_aSIgg" } }; },
+    async unsubscribe() { window.__fakeSub = null; return true; },
+  };
+  // O headless informa "denied" mesmo com a permissão concedida no contexto.
+  Object.defineProperty(Notification, "permission", { get: () => "granted" });
+  Notification.requestPermission = async () => "granted";
+  PushManager.prototype.getSubscription = async function () { return window.__fakeSub ?? null; };
+  PushManager.prototype.subscribe = async function (opts) {
+    window.__subscribeKeyLength = new Uint8Array(opts.applicationServerKey).length;
+    window.__fakeSub = fakeSub;
+    return fakeSub;
+  };
+`;
 
 // Pré-carregamento interno do Next no export estático: pede
 // "<rota>/__next.<rota>.__PAGE__.txt", mas o build grava "__next.<rota>/__PAGE__.txt".
@@ -37,8 +60,13 @@ const KNOWN_404 = /\/__next\.[^/]+\.__PAGE__\.txt/;
 
 await startSupabase(54321);
 await startStatic(outDir, 3210);
-const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ["microphone"] });
+const browser = await chromium.launch({ channel: "chromium", args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+const ctx = await browser.newContext({
+  viewport: { width: 390, height: 844 },
+  deviceScaleFactor: 2,
+  permissions: ["microphone", "notifications"],
+});
+await ctx.addInitScript(FAKE_PUSH);
 const page = await ctx.newPage();
 const problems = [];
 const unexpected404 = [];
@@ -175,9 +203,69 @@ try {
   await page.screenshot({ path: `${shots}/9-detalhe.png`, fullPage: true });
   step("detalhe: histórico, adesão e lembretes");
 
+  // --- Ajustes: notificações e privacidade --------------------------------
+  await page.click("nav >> text=Ajustes");
+  await page.waitForURL("**/ajustes/");
+  await page.click("text=Ativar notificações");
+  await page.waitForSelector("text=✓ Ativadas neste aparelho");
+  if (state.subs.length !== 1 || state.subs[0].endpoint !== "https://push.exemplo/aparelho-e2e" || !state.subs[0].p256dh) {
+    throw new Error("inscrição não registrada: " + JSON.stringify(state.subs));
+  }
+  if ((await page.evaluate(() => window.__subscribeKeyLength)) !== 65) throw new Error("chave VAPID pública mal convertida");
+  step("ativar notificações registra a inscrição do aparelho");
+
+  await page.click("text=Enviar teste");
+  await page.waitForSelector("text=Notificação de teste enviada.");
+  await page.click("text=Mostrar o nome do remédio");
+  await page.waitForSelector("text=Preferência salva.");
+  if (state.profile.notification_privacy !== "detailed") throw new Error("privacidade não salva");
+  await page.screenshot({ path: `${shots}/10-ajustes.png`, fullPage: true });
+  step("notificação de teste e privacidade na tela bloqueada");
+
+  // Push de verdade entregue ao Service Worker real (CDP), no formato do disparar-lembretes.
+  const cdp = await ctx.newCDPSession(page);
+  const registrationId = await new Promise((resolve) => {
+    cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+      const r = registrations.find((x) => x.scopeURL === `${BASE}/` && !x.isDeleted);
+      if (r) resolve(r.registrationId);
+    });
+    cdp.send("ServiceWorker.enable");
+  });
+  await cdp.send("ServiceWorker.deliverPushMessage", {
+    origin: BASE,
+    registrationId,
+    data: JSON.stringify({
+      title: "Klin",
+      body: "Hora da sua medicação programada.",
+      url: "medicamentos/",
+      tag: `dose-${omeprazol.id}`,
+      dose: { medicationId: omeprazol.id, scheduledFor: new Date().toISOString() },
+    }),
+  });
+  let n = null;
+  for (let i = 0; i < 40 && !n; i++) {
+    n = await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.ready;
+      const list = await reg.getNotifications();
+      return list.length
+        ? { title: list[0].title, body: list[0].body, tag: list[0].tag, actions: list[0].actions.map((a) => a.action), data: list[0].data }
+        : null;
+    });
+    if (!n) await page.waitForTimeout(250);
+  }
+  if (!n) throw new Error("o Service Worker não exibiu a notificação");
+  if (n.body !== "Hora da sua medicação programada." || !n.actions.includes("mark-taken") || n.data.dose.medicationId !== omeprazol.id || n.data.url !== "medicamentos/") {
+    throw new Error("notificação exibida errada: " + JSON.stringify(n));
+  }
+  step("Service Worker exibe o push com o botão \"Marcar como tomado\"");
+
   await page.click("text=Sair");
   await page.waitForURL("**/entrar/");
-  step("sair");
+  if (state.subs.length !== 0 || !state.calls.includes("DELETE push_subscriptions")) throw new Error("sair não removeu a inscrição do aparelho");
+  step("sair remove a inscrição deste aparelho");
+  await page.goto(BASE + "/");
+  await page.waitForURL("**/entrar/");
+
 } catch (err) {
   console.log("FALHOU:", err.message);
   await page.screenshot({ path: `${shots}/erro.png`, fullPage: true });

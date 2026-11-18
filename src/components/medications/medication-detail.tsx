@@ -128,7 +128,13 @@ export function MedicationDetail() {
         <div className="flex items-center gap-3">
           <span className="flex-1">
             <span className="block font-medium">Lembretes</span>
-            <span className="block text-xs text-zinc-500">Aviso no horário de cada dose (as notificações chegam na próxima fase do app).</span>
+            <span className="block text-xs text-zinc-500">
+              Aviso no horário de cada dose. As notificações são ativadas por aparelho, em{" "}
+              <Link href="/ajustes/" className="text-teal-700 underline dark:text-teal-400">
+                Ajustes
+              </Link>
+              .
+            </span>
           </span>
           <Switch
             label="Lembretes"

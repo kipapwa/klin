@@ -3,7 +3,10 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 
-export const state = { uploads: {}, records: [], meds: [], logs: [], calls: [] };
+export const state = {
+  uploads: {}, records: [], meds: [], logs: [], calls: [], subs: [],
+  profile: { id: "11111111-1111-4111-8111-111111111111", timezone: "America/Sao_Paulo", notification_privacy: "discreet" },
+};
 const H = 3_600_000;
 
 /** Imita o gatilho medications_compute_schedule (tolerância de 1 h). */
@@ -109,6 +112,30 @@ export function startSupabase(port) {
         state.logs = state.logs.filter((l) => l.medication_id !== eq("id"));
         return send(res, 204);
       }
+    }
+    if (p === "/rest/v1/profiles") {
+      if (req.method === "GET") return one ? send(res, 200, state.profile) : send(res, 200, [state.profile]);
+      const patch = JSON.parse(raw);
+      Object.assign(state.profile, patch);
+      state.calls.push(`PATCH profiles ${Object.keys(patch).join(",")}`);
+      return send(res, 204);
+    }
+    if (p === "/rest/v1/rpc/register_push_subscription") {
+      const b = JSON.parse(raw);
+      state.subs = state.subs.filter((s) => s.endpoint !== b.p_endpoint);
+      state.subs.push({ endpoint: b.p_endpoint, p256dh: b.p_p256dh, auth: b.p_auth, user_agent: b.p_user_agent });
+      return send(res, 204);
+    }
+    if (p === "/rest/v1/push_subscriptions" && req.method === "DELETE") {
+      const endpoint = url.searchParams.get("endpoint").replace(/^eq\./, "");
+      state.subs = state.subs.filter((s) => s.endpoint !== endpoint);
+      state.calls.push("DELETE push_subscriptions");
+      return send(res, 204);
+    }
+    if (p === "/functions/v1/testar-notificacao") {
+      return state.subs.length
+        ? send(res, 200, { sent: state.subs.length, removed: 0 })
+        : send(res, 404, { error: "Nenhum aparelho com notificações ativadas." });
     }
     if (p === "/rest/v1/medication_logs") {
       if (req.method === "GET") {

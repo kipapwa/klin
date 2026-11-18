@@ -14,7 +14,7 @@ cp .env.example .env.local   # só valores públicos
 npm run dev                  # http://localhost:3000
 ```
 
-Testes: `npm test` (funções puras do site e das Edge Functions), `npm run test:db` (schema e RLS), `npm run check:functions` (tipos no Deno) e `npm run test:e2e` (fluxo completo no Chromium com Supabase falso; antes, uma vez: `npx playwright install chromium`).
+Testes: `npm test` (funções puras do site e das Edge Functions), `npm run test:deno` (os testes das funções no runtime Deno), `npm run test:db` (schema e RLS), `npm run check:functions` (tipos no Deno) e `npm run test:e2e` (fluxo completo no Chromium com Supabase falso; antes, uma vez: `npx playwright install chromium`).
 
 ## Configuração (uma vez)
 
@@ -27,6 +27,12 @@ Testes: `npm test` (funções puras do site e das Edge Functions), `npm run test
 3. **GitHub > Settings > Secrets and variables > Actions**
    - *Variables* (públicas): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY` e, opcionalmente, `ALLOWED_ORIGINS` e `GEMINI_MODEL`.
    - *Secrets:* `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `GEMINI_API_KEY` e `GROQ_API_KEY` (criar em https://console.groq.com/keys).
+
+4. **Lembretes por notificação (push):**
+   1. Gere o par de chaves: `npx web-push generate-vapid-keys`. A pública vai na *Variable* `NEXT_PUBLIC_VAPID_PUBLIC_KEY`; a privada vai no *Secret* `VAPID_PRIVATE_KEY`. Crie também a *Variable* `VAPID_SUBJECT` (`mailto:seu-email`).
+   2. Gere um segredo para o agendador (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`) e cadastre no *Secret* `CRON_SECRET`.
+   3. Depois que o workflow publicar as funções, rode o **Passo 1** de `supabase/cron.sql` no SQL Editor: guarda no Vault a URL do projeto e o mesmo `CRON_SECRET`. Em seguida, rode o restante do arquivo, que agenda o disparo a cada minuto.
+   4. No app: **Ajustes > Ativar notificações** e depois **Enviar teste**. No iPhone, primeiro instale o app pela opção "Adicionar à Tela de Início".
 
 A cada push na `main`, os workflows publicam o site e as Edge Functions. Veja `supabase/functions/.env.example` para a lista completa de segredos das funções.
 
