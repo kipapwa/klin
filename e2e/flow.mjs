@@ -326,7 +326,7 @@ try {
   // --- Bloqueio por PIN e biometria ------------------------------------------
   // Autenticador virtual de plataforma (digital/rosto) pelo DevTools.
   await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+  const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
     options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true },
   });
   await page.reload();
@@ -346,23 +346,35 @@ try {
   await page.waitForSelector("text=Biometria ativada.");
   step("PIN criado (só o hash fica no aparelho) e biometria registrada");
 
+  // Ao travar, a biometria é pedida sozinha: com a "digital" aceita, destrava sem toque.
+  await page.click("text=Bloquear agora");
+  await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
+  if (!(await page.locator("nav").count())) throw new Error("a biometria automática não destravou");
+  step("ao travar, pede a digital/rosto sozinho e destrava");
+
+  // "Digital" recusada: o pedido automático falha e a tela fica bloqueada.
+  const setVerified = (ok) => cdp.send("WebAuthn.setUserVerified", { authenticatorId, isUserVerified: ok });
+  await setVerified(false);
   await page.click("text=Bloquear agora");
   await page.waitForSelector("text=App bloqueado");
+  await page.waitForTimeout(500);
   if (await page.locator("nav").count()) throw new Error("conteúdo visível com o app bloqueado");
   await page.fill("#unlock-pin", "1111");
-  await page.click("text=Desbloquear");
+  await page.click("text=Desbloquear com PIN");
   await page.waitForSelector("text=PIN incorreto. 9 tentativas restantes");
   await page.screenshot({ path: `${shots}/13-bloqueio.png` });
-  await page.click("text=Usar digital / rosto");
+  await setVerified(true);
+  await page.click("text=Desbloquear com digital / rosto");
   await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
-  step("bloqueio: PIN errado recusado, desbloqueio por biometria");
+  step("biometria recusada: fica bloqueado; PIN errado recusado; botão de digital destrava");
 
+  await setVerified(false);
   await page.reload();
   await page.waitForSelector("text=App bloqueado");
   await page.fill("#unlock-pin", "2580");
-  await page.click("text=Desbloquear");
+  await page.click("text=Desbloquear com PIN");
   await page.waitForSelector("text=✓ Bloqueio por PIN ativado");
-  step("ao reabrir o app pede o PIN; PIN certo desbloqueia");
+  step("ao reabrir o app fica bloqueado; PIN certo desbloqueia");
 
   await page.click("text=Sair");
   await page.waitForURL("**/entrar/");

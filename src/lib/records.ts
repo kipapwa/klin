@@ -46,7 +46,7 @@ export async function listRecords(filters: RecordFilters = {}, limit = 200): Pro
   const text = filters.query?.trim().slice(0, 100);
   if (text) q = q.textSearch("search", text, { config: "portuguese", type: "websearch" });
   const { data, error } = await q.order("recorded_at", { ascending: false }).limit(limit);
-  if (error) throw new UserFacingError("Não foi possível carregar os registros.");
+  if (error) throw new UserFacingError(`Não foi possível carregar os registros${error.code ? ` (código ${error.code})` : ""}.`);
   return data as MedicalRecordSummary[];
 }
 
@@ -132,7 +132,8 @@ export async function createRecordFromAudio(
   }
   if (isNetworkFailure(error)) throw new OfflineError();
   await supabase.storage.from("audio").remove([path]);
-  throw new UserFacingError("Não foi possível salvar o registro.");
+  // O código (ex.: 42501, 23514) não tem dado clínico e permite diagnosticar.
+  throw new UserFacingError(`Não foi possível salvar o registro${error?.code ? ` (código ${error.code})` : ""}.`);
 }
 
 /** Chama a Edge Function que estrutura a nota (Gemini, com Groq de reserva). */

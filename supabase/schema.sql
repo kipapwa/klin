@@ -502,6 +502,19 @@ alter table public.push_subscriptions  enable row level security;
 revoke all on public.profiles, public.medical_records, public.medications,
               public.medication_logs, public.push_subscriptions from anon;
 
+-- Permissões explícitas para usuários logados. Projetos novos do Supabase podem
+-- não expor automaticamente as tabelas criadas por SQL; sem estes GRANTs o
+-- banco responde "permission denied" (42501) mesmo com o RLS correto.
+-- O RLS abaixo continua limitando cada usuário às próprias linhas.
+grant usage on schema public to authenticated, service_role;
+grant select, insert, update, delete
+  on public.medical_records, public.medications, public.medication_logs, public.push_subscriptions
+  to authenticated;
+grant select, update on public.profiles to authenticated;
+grant all on public.profiles, public.medical_records, public.medications,
+             public.medication_logs, public.push_subscriptions, public.ai_usage
+  to service_role;
+
 -- profiles: o próprio usuário lê e edita (criação é pelo trigger).
 drop policy if exists profiles_select_own on public.profiles;
 create policy profiles_select_own on public.profiles

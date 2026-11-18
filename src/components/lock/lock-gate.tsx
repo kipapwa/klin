@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { clearLock, lockServerSnapshot, lockSnapshot, subscribeLock, unlockWithBiometric, unlockWithPin } from "@/lib/app-lock";
 import { getSupabase } from "@/lib/supabase";
 
@@ -21,6 +21,21 @@ function LockScreen({ biometric }: { biometric: boolean }) {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const autoPrompted = useRef(false);
+
+  // Com biometria ativada, já pede a digital/rosto ao aparecer (ao abrir o app
+  // e ao voltar a ele). Se o navegador exigir um toque antes (Safari às vezes
+  // exige), o pedido falha em silêncio e o botão abaixo resolve.
+  useEffect(() => {
+    if (!biometric || autoPrompted.current) return;
+    autoPrompted.current = true;
+    void unlockWithBiometric();
+  }, [biometric]);
+
+  async function biometricUnlock() {
+    setMessage(null);
+    if (!(await unlockWithBiometric())) setMessage("Biometria não confirmada. Tente de novo ou use o PIN.");
+  }
 
   async function forget() {
     if (!window.confirm("Sair da conta neste aparelho? Para voltar, entre de novo com o código enviado ao seu e-mail.")) return;
@@ -57,7 +72,17 @@ function LockScreen({ biometric }: { biometric: boolean }) {
         <p className="text-3xl font-semibold text-teal-700 dark:text-teal-400">Klin</p>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">App bloqueado</p>
       </div>
+      {biometric ? (
+        <button
+          type="button"
+          onClick={biometricUnlock}
+          className="w-full rounded-xl bg-teal-700 px-4 py-4 text-lg font-semibold text-white hover:bg-teal-800"
+        >
+          Desbloquear com digital / rosto
+        </button>
+      ) : null}
       <form onSubmit={submit} className="flex w-full flex-col gap-3">
+        {biometric ? <p className="text-sm text-zinc-500">ou digite o PIN</p> : null}
         <label htmlFor="unlock-pin" className="sr-only">
           PIN
         </label>
@@ -67,7 +92,8 @@ function LockScreen({ biometric }: { biometric: boolean }) {
           inputMode="numeric"
           autoComplete="off"
           maxLength={8}
-          autoFocus
+          // Com biometria, não abre o teclado por cima do pedido de digital/rosto.
+          autoFocus={!biometric}
           value={pin}
           onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
           placeholder="Digite seu PIN"
@@ -78,20 +104,17 @@ function LockScreen({ biometric }: { biometric: boolean }) {
             {message}
           </p>
         ) : null}
-        <button type="submit" disabled={busy || pin.length < 4} className="rounded-xl bg-teal-700 px-4 py-3 font-semibold text-white disabled:opacity-60">
-          {busy ? "Verificando…" : "Desbloquear"}
+        <button
+          type="submit"
+          disabled={busy || pin.length < 4}
+          className={
+            biometric
+              ? "rounded-xl border border-zinc-300 px-4 py-3 font-medium disabled:opacity-60 dark:border-zinc-700"
+              : "rounded-xl bg-teal-700 px-4 py-3 font-semibold text-white disabled:opacity-60"
+          }
+        >
+          {busy ? "Verificando…" : "Desbloquear com PIN"}
         </button>
-        {biometric ? (
-          <button
-            type="button"
-            onClick={async () => {
-              if (!(await unlockWithBiometric())) setMessage("Biometria não confirmada. Use o PIN.");
-            }}
-            className="rounded-xl border border-zinc-300 px-4 py-3 font-medium dark:border-zinc-700"
-          >
-            Usar digital / rosto
-          </button>
-        ) : null}
       </form>
       <button type="button" onClick={forget} className="text-sm text-zinc-500 underline">
         Esqueci o PIN
