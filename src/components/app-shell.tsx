@@ -1,67 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { RequireAuth } from "@/components/auth/require-auth";
 import { BottomNav } from "@/components/bottom-nav";
 import { LockGate } from "@/components/lock/lock-gate";
 import { OfflineSync } from "@/components/offline/offline-sync";
-import { clearLock } from "@/lib/app-lock";
-import { pendingDraftCount, deleteDraftsOf } from "@/lib/offline-store";
-import { forgetThisDevice } from "@/lib/push";
-import { getSupabase } from "@/lib/supabase";
+import { ChevronLeftIcon, LogoMark } from "@/components/ui/icons";
 
-/** Moldura das telas logadas: sessão, bloqueio de tela, sincronização, cabeçalho e navegação. */
-export function AppShell({ title, back, children }: { title?: string; back?: string; children: ReactNode }) {
-  const router = useRouter();
-
-  async function signOut() {
-    const supabase = getSupabase();
-    const userId = (await supabase.auth.getSession()).data.session?.user.id;
-    const pending = userId ? await pendingDraftCount(userId) : 0;
-    if (
-      pending > 0 &&
-      !window.confirm(
-        `Há ${pending} ${pending === 1 ? "gravação ainda não enviada" : "gravações ainda não enviadas"} neste aparelho. Sair apaga ${pending === 1 ? "essa gravação" : "essas gravações"}. Sair mesmo assim?`,
-      )
-    ) {
-      return;
-    }
-    // Ao sair, nada desta conta fica no aparelho: lembretes, PIN e rascunhos.
-    await forgetThisDevice();
-    clearLock();
-    if (userId) await deleteDraftsOf(userId);
-    await supabase.auth.signOut();
-    router.replace("/entrar/");
-  }
-
+/**
+ * Moldura das telas logadas: sessão, bloqueio, sincronização, cabeçalho e
+ * menu inferior. "Sair da conta" fica em Ajustes.
+ */
+export function AppShell({ title, back, action, children }: { title?: string; back?: string; action?: ReactNode; children: ReactNode }) {
   return (
     <RequireAuth>
       <LockGate>
         <OfflineSync />
-        <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 pt-[env(safe-area-inset-top)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
-          <div className="mx-auto flex h-14 max-w-2xl items-center gap-3 px-4">
+        <header className="sticky top-0 z-10 border-b border-zinc-200/70 bg-zinc-50/90 pt-[env(safe-area-inset-top)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/90">
+          <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4">
             {back ? (
-              <Link href={back} className="-ml-2 rounded-lg px-2 py-1 text-teal-700 dark:text-teal-400" aria-label="Voltar">
-                ←
+              <Link
+                href={back}
+                className="-ml-2 flex h-10 w-10 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                aria-label="Voltar"
+              >
+                <ChevronLeftIcon />
               </Link>
-            ) : null}
-            <Link href="/" className="font-semibold text-teal-700 dark:text-teal-400">
-              {title ?? "Klin"}
-            </Link>
-            <button
-              type="button"
-              onClick={signOut}
-              className="ml-auto rounded-lg px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
-            >
-              Sair
-            </button>
+            ) : (
+              <LogoMark />
+            )}
+            <span className="truncate text-lg font-semibold">{title ?? "Klin"}</span>
+            {action ? <div className="ml-auto">{action}</div> : null}
           </div>
         </header>
-        <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] pt-4">
-          {children}
-        </main>
+        <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(11rem+env(safe-area-inset-bottom))] pt-4">{children}</main>
         <BottomNav />
       </LockGate>
     </RequireAuth>

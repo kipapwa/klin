@@ -2,6 +2,7 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
+import { slotAfter } from "../src/lib/doses.ts";
 
 export const state = {
   uploads: {}, records: [], meds: [], logs: [], calls: [], subs: [],
@@ -10,15 +11,17 @@ export const state = {
 const H = 3_600_000;
 
 /** Imita o gatilho medications_compute_schedule (tolerância de 1 h). */
+// Mesma lógica de agenda do app (espelha as funções do banco).
 function schedule(m, recompute) {
+  m.schedule_type ??= "interval";
+  m.dose_times ??= [];
+  m.timezone ??= "America/Sao_Paulo";
   const start = Date.parse(m.starts_at);
   m.ends_at = m.duration_days ? new Date(start + m.duration_days * 24 * H).toISOString() : null;
   if (recompute) {
-    const step = Number(m.interval_hours) * H;
-    const k = Math.max(0, Math.ceil((Date.now() - H - start) / step));
-    m.next_dose_at = new Date(start + k * step).toISOString();
+    const next = slotAfter(m, Date.now() - H, true);
+    m.next_dose_at = next === null ? null : new Date(next).toISOString();
   }
-  if (m.ends_at && m.next_dose_at && Date.parse(m.next_dose_at) > Date.parse(m.ends_at)) m.next_dose_at = null;
   return m;
 }
 const USER = {
@@ -133,6 +136,10 @@ export function startSupabase(port) {
       }
     }
     if (p === "/rest/v1/profiles") {
+      if (req.method === "GET" && state.failProfileOnce) {
+        state.failProfileOnce = false;
+        return send(res, 500, { code: "XX000", message: "falha simulada" });
+      }
       if (req.method === "GET") return one ? send(res, 200, state.profile) : send(res, 200, [state.profile]);
       const patch = JSON.parse(raw);
       Object.assign(state.profile, patch);
@@ -170,10 +177,9 @@ export function startSupabase(port) {
       // gatilho medication_logs_advance_schedule
       const m = state.meds.find((x) => x.id === log.medication_id);
       if (m && (!m.next_dose_at || Date.parse(m.next_dose_at) <= Date.parse(log.scheduled_for))) {
-        const next = Date.parse(log.scheduled_for) + m.interval_hours * H;
-        const over = m.ends_at && next > Date.parse(m.ends_at);
-        m.next_dose_at = over ? null : new Date(next).toISOString();
-        if (over) m.is_active = false;
+        const next = slotAfter(m, Date.parse(log.scheduled_for), false);
+        m.next_dose_at = next === null ? null : new Date(next).toISOString();
+        if (next === null && m.ends_at) m.is_active = false;
       }
       return send(res, 201);
     }

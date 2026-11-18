@@ -216,7 +216,122 @@ create table if not exists public.medications (
     on delete set null (record_id)
 );
 
--- Calcula fim do tratamento e primeira dose; recalcula se o horário mudar.
+-- Dois jeitos de agendar:
+--   'interval': grade starts_at + k × interval_hours (ex.: "de 8 em 8 horas", vindo da IA);
+--   'times'   : horários fixos do dia em dose_times ("08:00", "20:00"), no fuso `timezone`,
+--               a partir de starts_at (ex.: café, almoço e jantar).
+alter table public.medications add column if not exists schedule_type text not null default 'interval';
+alter table public.medications add column if not exists dose_times text[] not null default '{}';
+alter table public.medications add column if not exists timezone text not null default 'America/Sao_Paulo';
+
+create or replace function public.valid_dose_times(p_times text[])
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select coalesce(bool_and(t ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'), true) from unnest(p_times) as t
+$$;
+
+alter table public.medications drop constraint if exists medications_schedule_chk;
+alter table public.medications add constraint medications_schedule_chk check (
+  char_length(timezone) between 1 and 64
+  and cardinality(dose_times) <= 12
+  and public.valid_dose_times(dose_times)
+  and (
+    (schedule_type = 'interval')
+    or (schedule_type = 'times' and cardinality(dose_times) >= 1)
+  )
+);
+
+-- Primeira dose depois de p_after (ou igual, se p_inclusive), respeitando início e fim.
+create or replace function public.dose_slot_after(p_med public.medications, p_after timestamptz, p_inclusive boolean)
+returns timestamptz
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  v_ref timestamptz := greatest(p_after, p_med.starts_at);
+  v_day date;
+  v_t text;
+  v_slot timestamptz;
+  v_best timestamptz;
+  v_step double precision;
+begin
+  if p_med.schedule_type = 'times' then
+    for v_day in
+      select d::date from generate_series((v_ref at time zone p_med.timezone)::date - 1,
+                                          (v_ref at time zone p_med.timezone)::date + 1, interval '1 day') as d
+    loop
+      foreach v_t in array p_med.dose_times loop
+        v_slot := (v_day + v_t::time) at time zone p_med.timezone;
+        if v_slot >= p_med.starts_at
+           and (v_slot > p_after or (p_inclusive and v_slot = p_after))
+           and (v_best is null or v_slot < v_best) then
+          v_best := v_slot;
+        end if;
+      end loop;
+    end loop;
+  else
+    v_step := p_med.interval_hours * 3600;
+    v_best := p_med.starts_at + make_interval(secs =>
+      greatest(0, ceil(extract(epoch from (p_after - p_med.starts_at)) / v_step)) * v_step);
+    if not p_inclusive and v_best <= p_after then
+      v_best := v_best + make_interval(secs => v_step);
+    end if;
+  end if;
+
+  if v_best is null or (p_med.ends_at is not null and v_best > p_med.ends_at) then
+    return null;
+  end if;
+  return v_best;
+end;
+$$;
+
+-- Última dose da agenda até p_at (inclusive), ou null.
+create or replace function public.dose_slot_at_or_before(p_med public.medications, p_at timestamptz)
+returns timestamptz
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  v_day date;
+  v_t text;
+  v_slot timestamptz;
+  v_best timestamptz;
+  v_step double precision;
+begin
+  if p_at < p_med.starts_at then
+    return null;
+  end if;
+  if p_med.schedule_type = 'times' then
+    for v_day in
+      select d::date from generate_series((p_at at time zone p_med.timezone)::date - 1,
+                                          (p_at at time zone p_med.timezone)::date, interval '1 day') as d
+    loop
+      foreach v_t in array p_med.dose_times loop
+        v_slot := (v_day + v_t::time) at time zone p_med.timezone;
+        if v_slot >= p_med.starts_at and v_slot <= p_at and (v_best is null or v_slot > v_best) then
+          v_best := v_slot;
+        end if;
+      end loop;
+    end loop;
+  else
+    v_step := p_med.interval_hours * 3600;
+    v_best := p_med.starts_at + make_interval(secs =>
+      floor(extract(epoch from (p_at - p_med.starts_at)) / v_step) * v_step);
+  end if;
+
+  if v_best is null or (p_med.ends_at is not null and v_best > p_med.ends_at) then
+    return null;
+  end if;
+  return v_best;
+end;
+$$;
+
+-- Calcula fim do tratamento e primeira dose; recalcula se a agenda mudar.
 create or replace function public.medications_compute_schedule()
 returns trigger
 language plpgsql
@@ -230,17 +345,15 @@ begin
 
   if tg_op = 'INSERT'
      or new.starts_at is distinct from old.starts_at
-     or new.interval_hours is distinct from old.interval_hours then
-    -- Próxima dose = primeira ocorrência da grade (starts_at + k * intervalo) que
-    -- venceu há no máximo 1 hora. A tolerância faz a dose de "começar agora"
-    -- (ou de 20 min atrás) ficar disponível para marcar, em vez de pular para a seguinte.
-    new.next_dose_at := new.starts_at + make_interval(secs =>
-      greatest(0, ceil(extract(epoch from (now() - interval '1 hour' - new.starts_at)) / (new.interval_hours * 3600)))
-      * new.interval_hours * 3600);
-  end if;
-
-  if new.ends_at is not null and new.next_dose_at is not null and new.next_dose_at > new.ends_at then
-    new.next_dose_at := null;
+     or new.interval_hours is distinct from old.interval_hours
+     or new.schedule_type is distinct from old.schedule_type
+     or new.dose_times is distinct from old.dose_times
+     or new.timezone is distinct from old.timezone
+     or new.duration_days is distinct from old.duration_days then
+    -- Próxima dose = primeira da agenda que venceu há no máximo 1 hora. A
+    -- tolerância deixa marcável a dose de "agora" (ou de 20 min atrás).
+    new.next_dose_at := public.dose_slot_after(new, now() - interval '1 hour', true);
+    new.notified_for := null;
   end if;
 
   return new;
@@ -301,23 +414,22 @@ returns trigger
 language plpgsql
 set search_path = ''
 as $$
+declare
+  v_med public.medications;
+  v_next timestamptz;
 begin
-  update public.medications m
-     set next_dose_at = case
-           when m.ends_at is not null
-                and new.scheduled_for + make_interval(secs => m.interval_hours * 3600) > m.ends_at
-             then null
-           else new.scheduled_for + make_interval(secs => m.interval_hours * 3600)
-         end,
-         is_active = case
-           when m.ends_at is not null
-                and new.scheduled_for + make_interval(secs => m.interval_hours * 3600) > m.ends_at
-             then false
-           else m.is_active
-         end
-   where m.id = new.medication_id
-     and m.user_id = new.user_id
-     and (m.next_dose_at is null or m.next_dose_at <= new.scheduled_for);
+  select * into v_med from public.medications
+   where id = new.medication_id and user_id = new.user_id;
+  if not found or (v_med.next_dose_at is not null and v_med.next_dose_at > new.scheduled_for) then
+    return new; -- dose antiga registrada depois: não volta a agenda
+  end if;
+
+  v_next := public.dose_slot_after(v_med, new.scheduled_for, false);
+  update public.medications
+     set next_dose_at = v_next,
+         -- Sem próxima dose porque o tratamento acabou: encerra.
+         is_active = case when v_next is null and v_med.ends_at is not null then false else is_active end
+   where id = v_med.id;
   return new;
 end;
 $$;
@@ -402,11 +514,8 @@ set search_path = ''
 as $$
 begin
   return query
-  with due as (
-    select m.id,
-           m.starts_at + make_interval(secs =>
-             floor(extract(epoch from (now() + interval '1 minute' - m.starts_at)) / (m.interval_hours * 3600))
-             * m.interval_hours * 3600) as slot
+  with locked as (
+    select m.*
       from public.medications m
      where m.is_active
        and m.notifications_enabled
@@ -414,14 +523,18 @@ begin
        and m.next_dose_at <= now() + interval '1 minute'
        for update skip locked
   ),
+  due as (
+    select l.id, l.next_dose_at, l.notified_for,
+           public.dose_slot_at_or_before(l::public.medications, now() + interval '1 minute') as slot
+      from locked l
+  ),
   claimable as (
     select d.id, d.slot
       from due d
-      join public.medications m on m.id = d.id
-     where d.slot >= m.next_dose_at
+     where d.slot is not null
+       and d.slot >= d.next_dose_at
        and d.slot > now() - interval '30 minutes'
-       and (m.ends_at is null or d.slot <= m.ends_at)
-       and (m.notified_for is null or m.notified_for < d.slot)
+       and (d.notified_for is null or d.notified_for < d.slot)
   )
   update public.medications m
      set notified_for = c.slot
@@ -510,7 +623,7 @@ grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete
   on public.medical_records, public.medications, public.medication_logs, public.push_subscriptions
   to authenticated;
-grant select, update on public.profiles to authenticated;
+grant select, insert, update on public.profiles to authenticated;
 grant all on public.profiles, public.medical_records, public.medications,
              public.medication_logs, public.push_subscriptions, public.ai_usage
   to service_role;
@@ -519,6 +632,12 @@ grant all on public.profiles, public.medical_records, public.medications,
 drop policy if exists profiles_select_own on public.profiles;
 create policy profiles_select_own on public.profiles
   for select to authenticated using ((select auth.uid()) = id);
+
+-- Contas criadas antes do gatilho handle_new_user existir não têm perfil:
+-- o app cria o próprio perfil (só com o próprio id).
+drop policy if exists profiles_insert_own on public.profiles;
+create policy profiles_insert_own on public.profiles
+  for insert to authenticated with check ((select auth.uid()) = id);
 
 drop policy if exists profiles_update_own on public.profiles;
 create policy profiles_update_own on public.profiles

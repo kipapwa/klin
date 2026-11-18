@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { BellIcon } from "@/components/ui/switch";
 import { doseState, dueSlot } from "@/lib/doses";
-import { formatDoseTime, formatRelative, intervalText } from "@/lib/labels";
+import { formatDoseTime, formatRelative, scheduleText } from "@/lib/labels";
 import type { DoseAction } from "@/lib/medications";
 import type { Medication } from "@/lib/types";
 
@@ -37,7 +37,7 @@ export function MedicationCard({
               {m.name}
               {m.dosage ? <span className="font-normal text-zinc-600 dark:text-zinc-300"> — {m.dosage}</span> : null}
             </h2>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">{intervalText(Number(m.interval_hours))}</p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">{scheduleText(m)}</p>
           </div>
           <span
             role="img"

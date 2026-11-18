@@ -63,6 +63,7 @@ await startSupabase(54321);
 await startStatic(outDir, 3210);
 const browser = await chromium.launch({ channel: "chromium", args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
 const ctx = await browser.newContext({
+  timezoneId: "America/Sao_Paulo",
   viewport: { width: 390, height: 844 },
   deviceScaleFactor: 2,
   permissions: ["microphone", "notifications"],
@@ -71,6 +72,7 @@ await ctx.addInitScript(FAKE_PUSH);
 const page = await ctx.newPage();
 const problems = [];
 const unexpected404 = [];
+let allowed500 = 0;
 page.on("response", (r) => {
   if (r.status() === 404 && !KNOWN_404.test(r.url())) unexpected404.push(r.url());
 });
@@ -80,6 +82,11 @@ page.on("console", (m) => {
   if (/Failed to load resource: .* 404/.test(text)) return;
   // Esperado no trecho do modo offline.
   if (/ERR_INTERNET_DISCONNECTED/.test(text)) return;
+  // Falha simulada de propósito (perfil em Ajustes), uma vez.
+  if (allowed500 > 0 && /status of 500/.test(text)) {
+    allowed500--;
+    return;
+  }
   if (m.type() === "error" || /Content Security Policy/i.test(text)) problems.push(text);
 });
 page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
@@ -135,9 +142,10 @@ try {
   if ((await page.inputValue("#name")) !== "Omeprazol" || (await page.inputValue("#dosage")) !== "20 mg") {
     throw new Error("formulário não veio pré-preenchido");
   }
-  await page.click("button:has-text('12 em 12h')");
+  await page.click("[role=radio]:has-text('A cada X horas')");
+  await page.click("button:has-text('12 em 12 h')");
   await page.screenshot({ path: `${shots}/6-form.png`, fullPage: true });
-  await page.click("text=Cadastrar medicamento");
+  await page.click("text=Salvar remédio");
   await page.waitForURL("**/medicamentos/detalhe/?id=*");
   await page.waitForSelector("h1:has-text('Omeprazol')");
   const omeprazol = state.meds.find((m) => m.name === "Omeprazol");
@@ -168,7 +176,7 @@ try {
   await page.screenshot({ path: `${shots}/5-painel.png` });
 
   // --- Medicamentos em uso -------------------------------------------------
-  await page.click("nav >> text=Medicamentos");
+  await page.click("nav >> text=Remédios");
   await page.waitForURL("**/medicamentos/");
   const losartanaCard = page.locator("li", { hasText: "Losartana" });
   await losartanaCard.locator("text=Hora da dose").waitFor();
@@ -205,6 +213,30 @@ try {
   if (!state.calls.includes("PATCH medications notifications_enabled")) throw new Error("lembrete não foi alterado");
   await page.screenshot({ path: `${shots}/9-detalhe.png`, fullPage: true });
   step("detalhe: histórico, adesão e lembretes");
+
+  // --- Remédio com horários do dia ------------------------------------------
+  await page.click("nav >> text=Remédios");
+  await page.click("[aria-label='Adicionar remédio']");
+  await page.waitForSelector("text=Novo remédio");
+  await page.fill("#name", "Vitamina D");
+  await page.click("button:has-text('2x ao dia')");
+  await page.click("text=Adicionar horário");
+  if ((await page.locator("input[type=time]").count()) !== 3) throw new Error("adicionar horário não criou o 3º campo");
+  await page.click("[aria-label='Remover horário 00:00']"); // remove o que acabou de adicionar
+  await page.screenshot({ path: `${shots}/14-form-horarios.png`, fullPage: true });
+  await page.click("text=Salvar remédio");
+  await page.waitForSelector("text=Todos os dias às 08:00 e 20:00");
+  const vit = state.meds.find((x) => x.name === "Vitamina D");
+  if (vit.schedule_type !== "times" || vit.dose_times.join() !== "08:00,20:00" || vit.timezone !== "America/Sao_Paulo") {
+    throw new Error("agenda de horários errada: " + JSON.stringify(vit));
+  }
+  const vitLocal = new Date(vit.next_dose_at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+  if (!["08:00", "20:00"].includes(vitLocal)) throw new Error("próxima dose fora dos horários: " + vitLocal);
+  await page.waitForSelector("text=Ative as notificações neste aparelho");
+  step(`remédio com horários do dia (próxima dose às ${vitLocal}) e aviso para ativar notificações`);
+  await page.click("nav >> text=Remédios");
+  await page.waitForSelector("li:has-text('Vitamina D') >> text=Todos os dias às 08:00 e 20:00");
+  await page.screenshot({ path: `${shots}/15-remedios.png`, fullPage: true });
 
   // --- Linha do tempo: filtros e busca -------------------------------------
   await page.click("nav >> text=Registros");
@@ -268,8 +300,15 @@ try {
   step("conexão voltou: enviada sozinha (horário original) e processada pela IA");
 
   // --- Ajustes: notificações e privacidade --------------------------------
+  state.failProfileOnce = true; // bug corrigido: antes ficava carregando para sempre
+  allowed500 = 1;
   await page.click("nav >> text=Ajustes");
   await page.waitForURL("**/ajustes/");
+  await page.waitForSelector("text=Tentar de novo");
+  await page.locator("text=Tentar de novo").first().click();
+  await page.waitForSelector("text=Discreta (recomendado)");
+  await page.waitForSelector("text=Usando America/Sao_Paulo");
+  step("Ajustes: falha ao carregar o perfil mostra o erro e \"Tentar de novo\" recupera");
   await page.click("text=Ativar notificações");
   await page.waitForSelector("text=✓ Ativadas neste aparelho");
   if (state.subs.length !== 1 || state.subs[0].endpoint !== "https://push.exemplo/aparelho-e2e" || !state.subs[0].p256dh) {

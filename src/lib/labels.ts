@@ -40,6 +40,16 @@ export function intervalText(hours: number): string {
   return `de ${String(hours).replace(".", ",")} em ${String(hours).replace(".", ",")} horas`;
 }
 
+/** "Todos os dias às 08:00 e 20:00" ou "de 8 em 8 horas (3x ao dia)". */
+export function scheduleText(m: { schedule_type?: string; dose_times?: string[]; interval_hours: number }): string {
+  if (m.schedule_type === "times" && m.dose_times?.length) {
+    const t = m.dose_times;
+    const list = t.length === 1 ? t[0] : `${t.slice(0, -1).join(", ")} e ${t.at(-1)}`;
+    return `Todos os dias às ${list}`;
+  }
+  return intervalText(Number(m.interval_hours));
+}
+
 const relative = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });
 
 /** "em 2 horas", "há 30 minutos", "agora". */

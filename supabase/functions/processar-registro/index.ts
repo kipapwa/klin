@@ -189,6 +189,7 @@ Deno.serve(async (req) => {
         interval_hours: m.interval_hours,
         duration_days: m.duration_days,
         starts_at: medicationStart(startFrom, m.start_time, timeZone).toISOString(),
+        timezone: timeZone,
         source: "ai",
         // Extraído pela IA: o usuário confere antes de ligar os lembretes.
         notifications_enabled: false,

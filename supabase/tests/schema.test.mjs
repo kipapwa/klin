@@ -56,6 +56,11 @@ before(async () => {
 test("perfil criado pelo gatilho de cadastro", async () => {
   const { rows } = await db.query("select count(*)::int as c from public.profiles");
   assert.equal(rows[0].c, 2);
+
+  // Conta antiga sem perfil: o app cria o próprio (e só o próprio).
+  await db.query(`delete from public.profiles where id = '${A}'`);
+  await as(A, `insert into public.profiles (id, timezone) values ('${A}', 'America/Sao_Paulo')`);
+  await assert.rejects(as(A, `insert into public.profiles (id) values ('${B}') on conflict do nothing`), "não cria perfil de outro");
 });
 
 test("registros: isolamento entre usuários e busca", async () => {
@@ -106,6 +111,41 @@ test("medicamentos: agenda de doses", async () => {
   await as(A, `delete from public.medical_records where id = '${rec}'`);
   const kept = (await as(A, `select record_id from public.medications where id = '${m.id}'`)).rows[0];
   assert.equal(kept.record_id, null, "apagar o registro mantém o remédio");
+});
+
+test("horários fixos: próxima dose no fuso do usuário, avanço e validação", async () => {
+  // Agenda às 08:00 e 20:00 de São Paulo, começando há 2 dias.
+  const ins = (times, extra = "") =>
+    as(A, `insert into public.medications (name, interval_hours, schedule_type, dose_times, timezone, starts_at${extra ? ", duration_days" : ""})
+      values ('Fixos', 24, 'times', '${times}', 'America/Sao_Paulo', now() - interval '2 days'${extra ? ", " + extra : ""})
+      returning id, next_dose_at`);
+  const m = (await ins("{08:00,20:00}")).rows[0];
+
+  const expected = (await db.query(`
+    select min(s) as s from (
+      select ((d::date + t::time) at time zone 'America/Sao_Paulo') as s
+        from generate_series(current_date - 2, current_date + 2, interval '1 day') d,
+             unnest(array['08:00','20:00']) t
+    ) x where s >= now() - interval '1 hour'`)).rows[0].s;
+  assert.equal(m.next_dose_at.getTime(), expected.getTime(), "próxima = 1º horário fixo que venceu há no máximo 1 h");
+  const local = (await db.query(`select to_char($1::timestamptz at time zone 'America/Sao_Paulo', 'HH24:MI') as hm`, [m.next_dose_at])).rows[0].hm;
+  assert.ok(["08:00", "20:00"].includes(local), `cai num dos horários (foi ${local})`);
+
+  await as(A, `insert into public.medication_logs (medication_id, scheduled_for, taken_at) values ('${m.id}', '${m.next_dose_at.toISOString()}', now())`);
+  const next = (await as(A, `select next_dose_at from public.medications where id = '${m.id}'`)).rows[0].next_dose_at;
+  assert.equal((next - m.next_dose_at) / 3.6e6, 12, "08:00 -> 20:00 (ou 20:00 -> 08:00): 12 h depois");
+
+  // 3 horários desiguais: café, almoço, jantar.
+  const desigual = (await ins("{07:00,12:00,19:30}")).rows[0];
+  assert.ok(desigual.next_dose_at, "agenda desigual aceita");
+
+  await assert.rejects(ins("{}"), "horários fixos exige ao menos um horário");
+  await assert.rejects(ins("{25:00}"), "horário inválido");
+  await assert.rejects(ins("{8h}"), "formato HH:MM");
+
+  // Tratamento de 1 dia que começou há 2 dias: já acabou, sem próxima dose.
+  const acabou = (await ins("{08:00}", "1")).rows[0];
+  assert.equal(acabou.next_dose_at, null);
 });
 
 test("storage: bucket privado e pasta por usuário", async () => {
@@ -178,6 +218,15 @@ test("disparo de lembretes: uma notificação por horário, inclusive após dose
   assert.equal(slots.rows[1].notified_for - slots.rows[1].starts_at, 8 * 3.6e6, "dose atual da grade (início + 8h)");
 
   assert.deepEqual(await claim(), [], "mesmo horário não é notificado de novo");
+
+  // Horário fixo que é agora (no fuso de São Paulo): notificado nesse horário exato.
+  const hm = (await db.query("select to_char(now() at time zone 'America/Sao_Paulo', 'HH24:MI') as hm")).rows[0].hm;
+  await as(A, `insert into public.medications (name, interval_hours, schedule_type, dose_times, timezone, starts_at)
+    values ('Fixo agora', 24, 'times', '{${hm}}', 'America/Sao_Paulo', now() - interval '3 days')`);
+  const fixed = await claim();
+  assert.deepEqual(fixed.map((r) => r.name), ["Fixo agora"]);
+  const slotLocal = (await db.query(`select to_char($1::timestamptz at time zone 'America/Sao_Paulo', 'HH24:MI') as hm`, [fixed[0].scheduled_for])).rows[0].hm;
+  assert.equal(slotLocal, hm, "dose do horário fixo de hoje");
 
   await assert.rejects(as(A, "select * from public.claim_due_doses()"), "usuário comum não chama o disparo");
 });

@@ -56,7 +56,7 @@ export async function getRecord(id: string): Promise<{ record: MedicalRecord; me
     supabase.from("medical_records").select(RECORD_COLUMNS).eq("id", id).maybeSingle(),
     supabase
       .from("medications")
-      .select("id, name, dosage, instructions, interval_hours, duration_days, starts_at, ends_at, next_dose_at, source, is_active, notifications_enabled")
+      .select("id, name, dosage, instructions, interval_hours, schedule_type, dose_times, timezone, duration_days, starts_at, ends_at, next_dose_at, source, is_active, notifications_enabled")
       .eq("record_id", id)
       .order("name"),
   ]);

@@ -42,12 +42,12 @@ export function TimelineScreen() {
   return (
     <>
       <div className="mb-4 flex items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">Linha do tempo</h1>
+        <h1 className="flex-1 text-2xl font-semibold tracking-tight">Linha do tempo</h1>
         <button
           type="button"
           onClick={exportPdf}
           disabled={busy || !current || current.records.length === 0}
-          className="rounded-xl border border-zinc-300 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-zinc-700"
+          className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium shadow-sm disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
         >
           {busy ? "Gerando…" : "Relatório PDF"}
         </button>

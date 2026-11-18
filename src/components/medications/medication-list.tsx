@@ -10,7 +10,9 @@ import { formatDoseTime } from "@/lib/labels";
 import { listMedications, recordDose, type DoseAction } from "@/lib/medications";
 import { UserFacingError } from "@/lib/records";
 import type { Medication } from "@/lib/types";
+import { PillIcon } from "@/components/ui/icons";
 import { MedicationCard } from "./medication-card";
+import { PushPrompt } from "./push-prompt";
 
 type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; meds: Medication[] };
 
@@ -84,6 +86,7 @@ export function MedicationList() {
 
   return (
     <div className="flex flex-col gap-3">
+      <h1 className="text-2xl font-semibold tracking-tight">Seus remédios</h1>
       {fromNotification ? (
         <div role="dialog" aria-label="Confirmar dose" className="rounded-2xl border-2 border-teal-600 bg-teal-50 p-4 dark:bg-teal-950">
           {notificationSlot ? (
@@ -139,9 +142,20 @@ export function MedicationList() {
         </p>
       ) : null}
 
+      {active.some((m) => m.notifications_enabled) ? <PushPrompt /> : null}
+
       {active.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-          Nenhum medicamento em uso. Os remédios citados nas gravações aparecem aqui, ou cadastre um manualmente.
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-6 py-10 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300">
+            <PillIcon size={32} />
+          </span>
+          <p className="text-lg font-semibold">Cadastre seus remédios</p>
+          <p className="max-w-xs text-sm text-zinc-600 dark:text-zinc-400">
+            Escolha os horários e o Klin avisa no celular na hora de cada dose.
+          </p>
+          <Link href="/medicamentos/editar/" className="mt-1 rounded-xl bg-teal-700 px-5 py-3 font-semibold text-white hover:bg-teal-800">
+            Adicionar remédio
+          </Link>
         </div>
       ) : (
         <ul className="flex flex-col gap-3">
@@ -153,17 +167,10 @@ export function MedicationList() {
         </ul>
       )}
 
-      <Link
-        href="/medicamentos/editar/"
-        className="rounded-2xl border-2 border-dashed border-teal-600 px-4 py-3 text-center font-medium text-teal-700 dark:text-teal-400"
-      >
-        + Adicionar medicamento
-      </Link>
-
       {ended.length > 0 ? (
         <details className="mt-4">
           <summary className="cursor-pointer text-sm font-medium text-zinc-600 dark:text-zinc-400">
-            Encerrados ({ended.length})
+            Tratamentos encerrados ({ended.length})
           </summary>
           <ul className="mt-3 flex flex-col gap-3">
             {ended.map((m) => (

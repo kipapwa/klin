@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { exportReport } from "@/lib/export-report";
 import { buildFollowUpIcs, downloadIcs } from "@/lib/ics";
-import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, intervalText, STATUS_LABEL } from "@/lib/labels";
+import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, scheduleText, STATUS_LABEL } from "@/lib/labels";
 import { deleteRecord, getRecord, processRecord, signedAudioUrl, UserFacingError } from "@/lib/records";
 import type { MedicalRecord, Medication } from "@/lib/types";
 import { SeverityBadge } from "./record-card";
@@ -207,7 +207,7 @@ export function RecordView() {
                   {m.dosage ? ` — ${m.dosage}` : ""}
                 </Link>
                 <p className="text-zinc-600 dark:text-zinc-400">
-                  {intervalText(Number(m.interval_hours))}
+                  {scheduleText(m)}
                   {m.duration_days ? `, por ${m.duration_days} dias` : ", uso contínuo"}
                   {m.instructions ? ` · ${m.instructions}` : ""}
                 </p>

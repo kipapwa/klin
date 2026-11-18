@@ -49,6 +49,9 @@ export interface Medication {
   dosage: string | null;
   instructions: string | null;
   interval_hours: number;
+  schedule_type?: "interval" | "times";
+  dose_times?: string[];
+  timezone?: string;
   duration_days: number | null;
   starts_at: string;
   ends_at: string | null;

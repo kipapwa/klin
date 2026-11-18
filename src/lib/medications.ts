@@ -4,7 +4,7 @@ import { UserFacingError } from "./records";
 import type { Medication, MedicationLog } from "./types";
 
 const COLUMNS =
-  "id, record_id, name, dosage, instructions, interval_hours, duration_days, starts_at, ends_at, next_dose_at, source, is_active, notifications_enabled";
+  "id, record_id, name, dosage, instructions, interval_hours, schedule_type, dose_times, timezone, duration_days, starts_at, ends_at, next_dose_at, source, is_active, notifications_enabled";
 
 export async function listMedications(): Promise<Medication[]> {
   const { data, error } = await getSupabase()

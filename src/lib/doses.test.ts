@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { adherence, doseState, dueSlot, isPendingSlot, type DoseSchedule } from "./doses.ts";
+import { adherence, doseState, dueSlot, isPendingSlot, slotAfter, slotAtOrBefore, type DoseSchedule } from "./doses.ts";
 
 const H = 3_600_000;
 const T0 = Date.parse("2026-11-18T08:00:00Z");
@@ -42,6 +42,59 @@ test("doseState", () => {
   assert.equal(doseState(med(), T0 + 10 * 60_000), "due");
   assert.equal(doseState(med(), T0 + 2 * H), "late");
   assert.equal(doseState(med({ is_active: false }), T0), "ended");
+});
+
+// --- Horários fixos ------------------------------------------------------
+const SP = "America/Sao_Paulo"; // UTC-3, sem horário de verão
+function fixed(times: string[], over: Partial<DoseSchedule> = {}): DoseSchedule {
+  return {
+    starts_at: "2026-11-18T03:00:00Z", // 00:00 em São Paulo
+    interval_hours: 24,
+    ends_at: null,
+    next_dose_at: "2026-11-18T11:00:00Z", // 08:00 SP
+    is_active: true,
+    schedule_type: "times",
+    dose_times: times,
+    timezone: SP,
+    ...over,
+  };
+}
+
+test("horários fixos: próxima dose e dose atual no fuso", () => {
+  const m = fixed(["08:00", "12:00", "19:30"]);
+  assert.equal(new Date(slotAfter(m, Date.parse("2026-11-18T11:00:00Z"), false)!).toISOString(), "2026-11-18T15:00:00.000Z", "08:00 -> 12:00");
+  assert.equal(new Date(slotAfter(m, Date.parse("2026-11-18T15:00:00Z"), false)!).toISOString(), "2026-11-18T22:30:00.000Z", "12:00 -> 19:30");
+  assert.equal(new Date(slotAfter(m, Date.parse("2026-11-18T22:30:00Z"), false)!).toISOString(), "2026-11-19T11:00:00.000Z", "19:30 -> 08:00 do dia seguinte");
+  assert.equal(new Date(slotAtOrBefore(m, Date.parse("2026-11-18T20:00:00Z"))!).toISOString(), "2026-11-18T15:00:00.000Z", "às 17:00 SP, a última foi 12:00");
+  assert.equal(slotAtOrBefore(m, Date.parse("2026-11-18T02:00:00Z")), null, "antes do início");
+});
+
+test("horários fixos: hora da dose, dose perdida e notificação", () => {
+  const m = fixed(["08:00", "20:00"]);
+  // 08:30 SP: dose das 08:00 devida
+  assert.equal(dueSlot(m, Date.parse("2026-11-18T11:30:00Z"))?.toISOString(), "2026-11-18T11:00:00.000Z");
+  // 22:00 SP sem registrar a das 08:00: registra a das 20:00
+  assert.equal(dueSlot(m, Date.parse("2026-11-19T01:00:00Z"))?.toISOString(), "2026-11-18T23:00:00.000Z");
+  assert.equal(isPendingSlot(m, "2026-11-18T23:00:00.000Z"), true, "20:00 SP é horário da agenda");
+  assert.equal(isPendingSlot(m, "2026-11-18T22:00:00.000Z"), false, "19:00 SP não é");
+});
+
+test("horários fixos respeitam horário de verão (Nova York)", () => {
+  const m = fixed(["08:00"], { timezone: "America/New_York", starts_at: "2026-10-30T04:00:00Z", next_dose_at: null });
+  // Antes e depois de 01/11/2026 (fim do horário de verão): 08:00 local = 12:00Z e depois 13:00Z
+  assert.equal(new Date(slotAfter(m, Date.parse("2026-10-31T13:00:00Z"), false)!).toISOString(), "2026-11-01T13:00:00.000Z");
+  assert.equal(new Date(slotAfter(m, Date.parse("2026-10-30T04:00:00Z"), true)!).toISOString(), "2026-10-30T12:00:00.000Z");
+});
+
+test("horários fixos: fim do tratamento e adesão", () => {
+  const m = fixed(["08:00", "20:00"], { ends_at: "2026-11-20T03:00:00Z" }); // 2 dias
+  assert.equal(slotAfter(m, Date.parse("2026-11-19T23:00:00Z"), false), null, "depois das 20:00 do 2º dia acabou");
+  const logs = [
+    { scheduled_for: "2026-11-18T11:00:00Z", status: "taken" as const },
+    { scheduled_for: "2026-11-18T23:00:00Z", status: "taken" as const },
+    { scheduled_for: "2026-11-19T11:00:00Z", status: "skipped" as const },
+  ];
+  assert.deepEqual(adherence(m, logs, Date.parse("2026-11-19T12:00:00Z")), { expected: 3, taken: 2, percent: 67 });
 });
 
 test("adherence conta doses previstas pela grade e tomadas no período", () => {

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useSession } from "@/components/auth/session-provider";
+import { useSignOut } from "@/components/auth/use-sign-out";
+import { BellIcon } from "@/components/ui/icons";
 import { Spinner } from "@/components/ui/spinner";
 import { deviceTimeZone, getProfile, updateProfile, type NotificationPrivacy, type Profile } from "@/lib/profile";
 import { devicePushState, disablePush, enablePush, sendTestNotification, type DevicePushState } from "@/lib/push";
@@ -9,7 +11,7 @@ import { UserFacingError } from "@/lib/records";
 import { LockSettings } from "./lock-settings";
 
 const button =
-  "rounded-xl border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800";
+  "rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800";
 const primary = "rounded-xl bg-teal-700 px-4 py-3 font-semibold text-white hover:bg-teal-800 disabled:opacity-60";
 
 function messageOf(err: unknown) {
@@ -18,7 +20,7 @@ function messageOf(err: unknown) {
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h2>
       {children}
     </section>
@@ -30,10 +32,13 @@ const PRIVACY_OPTIONS: { value: NotificationPrivacy; label: string; preview: str
   { value: "detailed", label: "Mostrar o nome do remédio", preview: "Hora de tomar Losartana — 50 mg." },
 ];
 
+type ProfileState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; profile: Profile };
+
 export function SettingsView() {
   const { session } = useSession();
+  const signOut = useSignOut();
   const [push, setPush] = useState<DevicePushState | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileState, setProfileState] = useState<ProfileState>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
@@ -45,16 +50,22 @@ export function SettingsView() {
     }
   }, []);
 
+  const loadProfile = useCallback(async (): Promise<ProfileState> => {
+    try {
+      return { kind: "ready", profile: await getProfile() };
+    } catch (err) {
+      return { kind: "error", message: messageOf(err) };
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     refreshPush().then((s) => active && setPush(s));
-    getProfile()
-      .then((p) => active && setProfile(p))
-      .catch((err) => active && setNotice({ tone: "error", text: messageOf(err) }));
+    loadProfile().then((s) => active && setProfileState(s));
     return () => {
       active = false;
     };
-  }, [refreshPush]);
+  }, [refreshPush, loadProfile]);
 
   async function run(action: () => Promise<void>, okText?: string) {
     setBusy(true);
@@ -71,8 +82,39 @@ export function SettingsView() {
 
   const deviceTz = typeof window === "undefined" ? "" : deviceTimeZone();
 
+  // Perfil: carregando, erro (com "Tentar de novo") ou o conteúdo.
+  function withProfile(render: (p: Profile) => ReactNode) {
+    if (profileState.kind === "loading") return <Spinner />;
+    if (profileState.kind === "error") {
+      return (
+        <div className="flex flex-col items-start gap-2 text-sm">
+          <p className="text-red-700 dark:text-red-400">{profileState.message}</p>
+          <button
+            type="button"
+            className={button}
+            onClick={async () => {
+              setProfileState({ kind: "loading" });
+              setProfileState(await loadProfile());
+            }}
+          >
+            Tentar de novo
+          </button>
+        </div>
+      );
+    }
+    return render(profileState.profile);
+  }
+
+  function saveProfile(profile: Profile, patch: Partial<Pick<Profile, "timezone" | "notification_privacy">>, okText: string) {
+    return run(async () => {
+      await updateProfile(profile.id, patch);
+      setProfileState({ kind: "ready", profile: { ...profile, ...patch } });
+    }, okText);
+  }
+
   return (
     <div className="flex flex-col gap-3">
+      <h1 className="text-2xl font-semibold tracking-tight">Ajustes</h1>
       {notice ? (
         <p
           role="status"
@@ -108,10 +150,10 @@ export function SettingsView() {
           </p>
         ) : push.subscribed ? (
           <div className="flex flex-col gap-3">
-            <p className="text-sm font-medium text-teal-800 dark:text-teal-300">✓ Ativadas neste aparelho</p>
-            <p className="text-xs text-zinc-500">
-              Você recebe um aviso no horário de cada dose dos remédios com lembrete ligado.
+            <p className="flex items-center gap-2 text-sm font-medium text-teal-800 dark:text-teal-300">
+              <BellIcon size={18} /> ✓ Ativadas neste aparelho
             </p>
+            <p className="text-xs text-zinc-500">Você recebe um aviso no horário de cada dose dos remédios com lembrete ligado.</p>
             <div className="flex flex-wrap gap-2">
               <button type="button" className={button} disabled={busy} onClick={() => run(sendTestNotification, "Notificação de teste enviada.")}>
                 Enviar teste
@@ -132,9 +174,7 @@ export function SettingsView() {
       </Card>
 
       <Card title="O que aparece na tela bloqueada">
-        {!profile ? (
-          <Spinner />
-        ) : (
+        {withProfile((profile) => (
           <fieldset className="flex flex-col gap-2" disabled={busy}>
             <legend className="sr-only">Privacidade das notificações</legend>
             {PRIVACY_OPTIONS.map((o) => (
@@ -147,12 +187,7 @@ export function SettingsView() {
                   name="privacy"
                   value={o.value}
                   checked={profile.notification_privacy === o.value}
-                  onChange={() =>
-                    run(async () => {
-                      await updateProfile(profile.id, { notification_privacy: o.value });
-                      setProfile({ ...profile, notification_privacy: o.value });
-                    }, "Preferência salva.")
-                  }
+                  onChange={() => saveProfile(profile, { notification_privacy: o.value }, "Preferência salva.")}
                   className="mt-1 accent-teal-700"
                 />
                 <span>
@@ -164,13 +199,11 @@ export function SettingsView() {
               </label>
             ))}
           </fieldset>
-        )}
+        ))}
       </Card>
 
       <Card title="Fuso horário dos lembretes">
-        {!profile ? (
-          <Spinner />
-        ) : (
+        {withProfile((profile) => (
           <div className="flex flex-col gap-2 text-sm">
             <p>
               Usando <strong>{profile.timezone}</strong>.
@@ -180,18 +213,13 @@ export function SettingsView() {
                 type="button"
                 className={button}
                 disabled={busy}
-                onClick={() =>
-                  run(async () => {
-                    await updateProfile(profile.id, { timezone: deviceTz });
-                    setProfile({ ...profile, timezone: deviceTz });
-                  }, "Fuso atualizado.")
-                }
+                onClick={() => saveProfile(profile, { timezone: deviceTz }, "Fuso atualizado.")}
               >
                 Usar o fuso deste aparelho ({deviceTz})
               </button>
             ) : null}
           </div>
-        )}
+        ))}
       </Card>
 
       <Card title="Bloqueio do app">
@@ -199,7 +227,12 @@ export function SettingsView() {
       </Card>
 
       <Card title="Conta">
-        <p className="text-sm">{session?.user.email}</p>
+        <div className="flex items-center gap-3">
+          <p className="min-w-0 flex-1 truncate text-sm">{session?.user.email}</p>
+          <button type="button" onClick={signOut} className="rounded-xl px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">
+            Sair da conta
+          </button>
+        </div>
       </Card>
     </div>
   );

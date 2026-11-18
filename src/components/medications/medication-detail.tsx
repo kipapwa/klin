@@ -5,9 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { PushPrompt } from "./push-prompt";
 import { useNow } from "@/hooks/use-now";
 import { adherence } from "@/lib/doses";
-import { formatDateTime, formatDoseTime, intervalText } from "@/lib/labels";
+import { formatDateTime, formatDoseTime, scheduleText } from "@/lib/labels";
 import { deleteMedication, endTreatment, getMedication, setReminders } from "@/lib/medications";
 import { UserFacingError } from "@/lib/records";
 import type { Medication, MedicationLog } from "@/lib/types";
@@ -69,7 +70,7 @@ export function MedicationDetail() {
   }, [load]);
 
   if (state.kind === "loading") return <Spinner label="Carregando…" />;
-  if (state.kind === "notFound") return <p className="text-sm">Medicamento não encontrado.</p>;
+  if (state.kind === "notFound") return <p className="text-sm">Remédio não encontrado.</p>;
   if (state.kind === "error") return <p role="alert" className="text-sm text-red-700">{state.message}</p>;
 
   const { medication: m, logs } = state;
@@ -95,7 +96,7 @@ export function MedicationDetail() {
           {m.dosage ? <span className="font-normal text-zinc-600 dark:text-zinc-300"> — {m.dosage}</span> : null}
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {intervalText(Number(m.interval_hours))}
+          {scheduleText(m)}
           {m.duration_days ? `, por ${m.duration_days} dias` : ", uso contínuo"}
         </p>
         {m.instructions ? <p className="mt-1 text-sm">{m.instructions}</p> : null}
@@ -123,6 +124,8 @@ export function MedicationDetail() {
           </Link>
         ) : null}
       </section>
+
+      {m.is_active && m.notifications_enabled ? <PushPrompt /> : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center gap-3">
@@ -203,12 +206,12 @@ export function MedicationDetail() {
         type="button"
         disabled={busy}
         onClick={() =>
-          window.confirm("Apagar este medicamento e todo o histórico de doses?") &&
+          window.confirm("Apagar este remédio e todo o histórico de doses?") &&
           run(() => deleteMedication(m.id), () => router.replace("/medicamentos/"))
         }
         className="self-end rounded-lg px-3 py-2 text-xs text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
       >
-        Apagar medicamento
+        Apagar remédio
       </button>
     </div>
   );

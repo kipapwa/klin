@@ -2,7 +2,7 @@
  * Relatório clínico: conteúdo (puro, testável no Node) separado do desenho
  * em PDF (report-pdf.ts). Gerado no aparelho; os dados não saem dele.
  */
-import { CATEGORY_LABEL, formatDate, formatDateTime, intervalText, SEVERITY_LABEL } from "./labels.ts";
+import { CATEGORY_LABEL, formatDate, formatDateTime, scheduleText, SEVERITY_LABEL } from "./labels.ts";
 import type { MedicalRecord, Medication } from "./types.ts";
 
 export interface ReportBlock {
@@ -42,7 +42,7 @@ export function pdfSafe(text: string): string {
 
 function medicationLine(m: Medication): ReportBlock {
   const parts = [
-    intervalText(Number(m.interval_hours)),
+    scheduleText(m),
     m.duration_days ? `por ${m.duration_days} dias` : "uso contínuo",
     `início ${formatDateTime(m.starts_at)}`,
   ];
