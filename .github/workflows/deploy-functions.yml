@@ -85,6 +85,11 @@ jobs:
           if [ -z "$GROQ_API_KEY" ]; then
             echo "::warning::Falta o segredo GROQ_API_KEY: sem reserva quando o Gemini falhar."
           fi
+          # O protocolo VAPID exige "mailto:" ou "https:"; aceita só o e-mail e completa.
+          case "$VAPID_SUBJECT" in
+            mailto:*|https:*) ;;
+            *@*) VAPID_SUBJECT="mailto:$VAPID_SUBJECT" ;;
+          esac
           if [ -z "$ALLOWED_ORIGINS" ]; then
             ALLOWED_ORIGINS="https://${GITHUB_REPOSITORY_OWNER,,}.github.io"
           fi
@@ -97,11 +102,12 @@ jobs:
             value="${!name}"
             if [ -n "$value" ]; then printf '%s=%s\n' "$name" "$value" >> "$envfile"; fi
           done
-          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$envfile"
+          # --yes: sem terminal interativo, a CLI exige confirmação explícita.
+          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$envfile" --yes
 
       - name: Publicar funções
         run: |
-          supabase functions deploy processar-registro --project-ref "$PROJECT_REF" --use-api
-          supabase functions deploy testar-notificacao --project-ref "$PROJECT_REF" --use-api
+          supabase functions deploy processar-registro --project-ref "$PROJECT_REF" --use-api --yes
+          supabase functions deploy testar-notificacao --project-ref "$PROJECT_REF" --use-api --yes
           # Chamada pelo Supabase Cron, sem usuário: protegida pelo x-cron-secret.
-          supabase functions deploy disparar-lembretes --project-ref "$PROJECT_REF" --use-api --no-verify-jwt
+          supabase functions deploy disparar-lembretes --project-ref "$PROJECT_REF" --use-api --no-verify-jwt --yes

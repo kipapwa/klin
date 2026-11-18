@@ -43,6 +43,30 @@ jobs:
       - id: pages
         uses: actions/configure-pages@v5
 
+      - name: Conferir variáveis públicas (nada secreto pode ir para o site)
+        env:
+          URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          fail=0
+          case "$URL" in
+            https://*.supabase.co|https://*.supabase.co/) ;;
+            *) echo "::error::NEXT_PUBLIC_SUPABASE_URL deve ser a Project URL (https://<id>.supabase.co)."; fail=1 ;;
+          esac
+          case "$KEY" in
+            sb_secret_*) echo "::error::NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY contém uma chave SECRETA (sb_secret_). Use a publishable (sb_publishable_) e revogue a secreta no Supabase."; fail=1 ;;
+            sb_publishable_*) ;;
+            eyJ*)
+              # Chave legada (JWT): a "service_role" ignora o RLS e nunca pode ir ao navegador.
+              payload=$(printf '%s' "$KEY" | cut -d. -f2 | tr '_-' '/+')
+              while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
+              if printf '%s' "$payload" | base64 -d 2>/dev/null | grep -q '"service_role"'; then
+                echo "::error::NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY é a chave service_role. Use a anon/publishable."; fail=1
+              fi ;;
+            *) echo "::error::NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY vazia ou em formato desconhecido."; fail=1 ;;
+          esac
+          exit $fail
+
       - name: Build
         run: npm run build
         env:
