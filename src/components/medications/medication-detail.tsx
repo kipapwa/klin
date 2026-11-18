@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useScreen } from "@/hooks/use-screen";
+import { forgetScreen, readScreen } from "@/lib/screen-cache";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { PushPrompt } from "./push-prompt";
@@ -15,11 +17,13 @@ import type { Medication, MedicationLog } from "@/lib/types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type State =
-  | { kind: "loading" }
-  | { kind: "notFound" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; medication: Medication; logs: MedicationLog[] };
+type Loaded = { medication: Medication; logs: MedicationLog[] } | null; // null = não existe
+
+/** Primeira visita: desenha na hora com o remédio que veio da lista (o histórico chega depois). */
+function seedFromList(id: string): Loaded | undefined {
+  const medication = readScreen<Medication[]>("remedios")?.find((m) => m.id === id);
+  return medication ? { medication, logs: [] } : undefined;
+}
 
 const STATUS_TEXT: Record<MedicationLog["status"], { icon: string; text: string; tone: string }> = {
   taken: { icon: "✓", text: "Tomada", tone: "text-teal-700 dark:text-teal-400" },
@@ -47,33 +51,18 @@ export function MedicationDetail() {
   const id = useSearchParams().get("id") ?? "";
   const router = useRouter();
   const now = useNow();
-  const [state, setState] = useState<State>({ kind: "loading" });
+  const validId = UUID_RE.test(id);
+  const screen = useScreen<Loaded>(`remedio:${id}`, () => (validId ? getMedication(id) : Promise.resolve(null)), {
+    seed: validId ? seedFromList(id) : null,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (): Promise<State> => {
-    if (!UUID_RE.test(id)) return { kind: "notFound" };
-    try {
-      const found = await getMedication(id);
-      return found ? { kind: "ready", ...found } : { kind: "notFound" };
-    } catch (err) {
-      return { kind: "error", message: messageOf(err) };
-    }
-  }, [id]);
+  if (screen.loading) return <Spinner label="Carregando…" />;
+  if (screen.data === null) return <p className="text-sm">Remédio não encontrado.</p>;
+  if (!screen.data) return <p role="alert" className="text-sm text-red-700">{screen.error}</p>;
 
-  useEffect(() => {
-    let active = true;
-    load().then((s) => active && setState(s));
-    return () => {
-      active = false;
-    };
-  }, [load]);
-
-  if (state.kind === "loading") return <Spinner label="Carregando…" />;
-  if (state.kind === "notFound") return <p className="text-sm">Remédio não encontrado.</p>;
-  if (state.kind === "error") return <p role="alert" className="text-sm text-red-700">{state.message}</p>;
-
-  const { medication: m, logs } = state;
+  const { medication: m, logs } = screen.data;
 
   async function run(action: () => Promise<void>, after?: () => void) {
     setBusy(true);
@@ -81,7 +70,7 @@ export function MedicationDetail() {
     try {
       await action();
       if (after) after();
-      else setState(await load());
+      else await screen.refresh();
     } catch (err) {
       setError(messageOf(err));
     }
@@ -207,7 +196,10 @@ export function MedicationDetail() {
         disabled={busy}
         onClick={() =>
           window.confirm("Apagar este remédio e todo o histórico de doses?") &&
-          run(() => deleteMedication(m.id), () => router.replace("/medicamentos/"))
+          run(() => deleteMedication(m.id), () => {
+            forgetScreen(`remedio:${m.id}`);
+            router.replace("/medicamentos/");
+          })
         }
         className="self-end rounded-lg px-3 py-2 text-xs text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
       >

@@ -313,10 +313,14 @@ try {
   step("conexão voltou: enviada sozinha (horário original) e processada pela IA");
 
   // --- Ajustes: notificações e privacidade --------------------------------
+  // Perfil já guardado (pré-carregado pela linha do tempo): Ajustes abriria na hora.
+  // Para testar a falha, apaga o guardado e abre a tela do zero.
+  const perfilGuardado = await page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith("klin:tela:") && k.endsWith(":perfil")));
+  if (!perfilGuardado) throw new Error("perfil não foi pré-carregado pela linha do tempo");
+  await page.evaluate(() => Object.keys(localStorage).filter((k) => k.endsWith(":perfil")).forEach((k) => localStorage.removeItem(k)));
   state.failProfileOnce = true; // bug corrigido: antes ficava carregando para sempre
   allowed500 = 1;
-  await page.click("nav >> text=Ajustes");
-  await page.waitForURL("**/ajustes/");
+  await page.goto(BASE + "/ajustes/");
   await page.waitForSelector("text=Tentar de novo");
   await page.locator("text=Tentar de novo").first().click();
   // Menu de Ajustes: valores atuais à direita das linhas.
@@ -434,9 +438,33 @@ try {
   await page.waitForSelector("text=Bloquear agora");
   step("ao reabrir o app fica bloqueado; PIN certo desbloqueia");
 
+  // --- Telas instantâneas: com o banco lento (4 s), toda tela abre em até 1 s ---
+  await page.route("**/rest/v1/**", async (route) => {
+    await new Promise((r) => setTimeout(r, 4000));
+    await route.continue().catch(() => {});
+  });
+  const fast = { timeout: 1000 };
+  const t0 = Date.now();
+  await page.click("nav >> text=Registros");
+  await page.waitForSelector("a[href*='/registro/'] >> text=Dor no peito ao subir escadas", fast);
+  await page.click("a[href*='/registro/'] >> text=Dor no peito ao subir escadas");
+  await page.waitForSelector("text=Queixa principal", fast);
+  await page.click("nav >> text=Remédios");
+  await page.waitForSelector("li:has-text('Vitamina D') >> text=Todos os dias às 08:00 e 20:00", fast);
+  await page.click("li:has-text('Vitamina D') >> h2");
+  await page.waitForSelector("h1:has-text('Vitamina D')", fast);
+  await page.click("text=Editar horários");
+  await page.waitForFunction(() => document.querySelector("#name")?.value === "Vitamina D", null, fast);
+  await page.click("nav >> text=Ajustes");
+  await page.locator("nav[aria-label='Notificações'] >> text=Com o nome").waitFor(fast);
+  await page.waitForSelector("header button[aria-label^='Lembretes']", fast);
+  await page.unroute("**/rest/v1/**");
+  step(`telas instantâneas: 6 telas abriram com o banco atrasado 4 s (total ${Date.now() - t0} ms)`);
+
   await page.click("text=Sair");
   await page.waitForURL("**/entrar/");
   if (await page.evaluate(() => localStorage.getItem("klin:lock"))) throw new Error("PIN ficou no aparelho após sair");
+  if (await page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith("klin:tela:")))) throw new Error("telas guardadas ficaram no aparelho após sair");
   if (state.subs.length !== 0 || !state.calls.includes("DELETE push_subscriptions")) throw new Error("sair não removeu a inscrição do aparelho");
   step("sair remove a inscrição deste aparelho");
   await page.goto(BASE + "/");

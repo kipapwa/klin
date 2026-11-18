@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useScreen } from "@/hooks/use-screen";
 import { PushPrompt } from "@/components/medications/push-prompt";
 import { BellIcon } from "@/components/ui/icons";
 import { IconButton, Sheet } from "@/components/ui/sheet";
@@ -19,29 +20,19 @@ import type { Medication } from "@/lib/types";
 export function NotificationBell() {
   const now = useNow();
   const [open, setOpen] = useState(false);
-  const [meds, setMeds] = useState<Medication[] | null>(null);
+  // Mesmo guardado da tela de remédios: o número aparece na hora.
+  const { data: meds, refresh } = useScreen("remedios", listMedications);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      return await listMedications();
-    } catch {
-      return null; // sem rede: o sininho fica sem número
-    }
-  }, []);
-
   useEffect(() => {
-    let active = true;
-    const refresh = () => load().then((m) => active && m && setMeds(m));
-    refresh();
-    window.addEventListener(DOSES_CHANGED, refresh);
-    window.addEventListener("online", refresh);
+    const reload = () => void refresh();
+    window.addEventListener(DOSES_CHANGED, reload);
+    window.addEventListener("online", reload);
     return () => {
-      active = false;
-      window.removeEventListener(DOSES_CHANGED, refresh);
-      window.removeEventListener("online", refresh);
+      window.removeEventListener(DOSES_CHANGED, reload);
+      window.removeEventListener("online", reload);
     };
-  }, [load]);
+  }, [refresh]);
 
   const current = now; // useNow: hora real no navegador (o sininho não é pré-renderizado)
   const active = (meds ?? []).filter((m) => m.is_active && m.next_dose_at);

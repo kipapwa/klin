@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useScreen } from "@/hooks/use-screen";
 import { Spinner } from "@/components/ui/spinner";
 import { useNow } from "@/hooks/use-now";
 import { dueSlot, isPendingSlot } from "@/lib/doses";
@@ -14,8 +15,6 @@ import { PillIcon } from "@/components/ui/icons";
 import { MedicationCard } from "./medication-card";
 import { PushPrompt } from "./push-prompt";
 
-type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; meds: Medication[] };
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function messageOf(err: unknown) {
@@ -26,29 +25,24 @@ export function MedicationList() {
   const now = useNow();
   const router = useRouter();
   const params = useSearchParams();
-  const [state, setState] = useState<State>({ kind: "loading" });
+  // Tela instantânea: os remédios guardados aparecem na hora (o sininho usa o mesmo guardado).
+  const screen = useScreen("remedios", listMedications);
+  const { refresh } = screen;
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
-  const load = useCallback(async (): Promise<State> => {
-    try {
-      return { kind: "ready", meds: await listMedications() };
-    } catch (err) {
-      return { kind: "error", message: messageOf(err) };
-    }
-  }, []);
-
   useEffect(() => {
-    let active = true;
-    const refresh = () => load().then((s) => active && setState(s));
-    refresh();
     // Dose marcada pelo sininho (ou outra tela): atualiza a lista.
-    window.addEventListener(DOSES_CHANGED, refresh);
-    return () => {
-      active = false;
-      window.removeEventListener(DOSES_CHANGED, refresh);
-    };
-  }, [load]);
+    const reload = () => void refresh();
+    window.addEventListener(DOSES_CHANGED, reload);
+    return () => window.removeEventListener(DOSES_CHANGED, reload);
+  }, [refresh]);
+
+  const state = screen.data
+    ? ({ kind: "ready", meds: screen.data } as const)
+    : screen.error
+      ? ({ kind: "error", message: screen.error } as const)
+      : ({ kind: "loading" } as const);
 
   async function handleDose(m: Medication, slot: Date, action: DoseAction, source: "app" | "notification" = "app") {
     setBusy(true);
@@ -67,7 +61,7 @@ export function MedicationList() {
     } catch (err) {
       setNotice({ tone: "error", text: messageOf(err) });
     }
-    setState(await load());
+    await refresh();
     setBusy(false);
   }
 

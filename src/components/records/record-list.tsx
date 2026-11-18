@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useScreen } from "@/hooks/use-screen";
+import { readScreen } from "@/lib/screen-cache";
 import { SearchIcon, SlidersIcon, XIcon } from "@/components/ui/icons";
 import { Sheet } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { CATEGORY_LABEL, SEVERITY_LABEL } from "@/lib/labels";
 import { DRAFTS_CHANGED } from "@/lib/offline-store";
-import { listRecords, UserFacingError, type RecordFilters } from "@/lib/records";
+import { listRecords, type RecordFilters } from "@/lib/records";
 import { groupByMonth, toggle } from "@/lib/timeline";
 import type { MedicalRecordSummary, RecordCategory, RecordSeverity } from "@/lib/types";
 import { RecordCard } from "./record-card";
-
-type State =
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; records: MedicalRecordSummary[] };
 
 const CATEGORY_ICON: Record<RecordCategory, string> = {
   symptom: "🤒",
@@ -48,12 +45,10 @@ const TIMELINE_DOT: Record<RecordSeverity, string> = {
  * na memória da tela — o termo buscado é dado de saúde e nunca vai à URL.
  */
 export function RecordList({ onFiltersChange }: { onFiltersChange?: (f: RecordFilters, records: MedicalRecordSummary[]) => void }) {
-  const [state, setState] = useState<State>({ kind: "loading" });
   const [categories, setCategories] = useState<RecordCategory[]>([]);
   const [severities, setSeverities] = useState<RecordSeverity[]>([]);
   const [text, setText] = useState("");
   const [query, setQuery] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
   // Rascunho dos filtros dentro da folha (aplica ao tocar em "Mostrar").
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draftCats, setDraftCats] = useState<RecordCategory[]>([]);
@@ -66,34 +61,42 @@ export function RecordList({ onFiltersChange }: { onFiltersChange?: (f: RecordFi
     return () => clearTimeout(t);
   }, [text]);
 
+  const filterCount = categories.length + severities.length;
+  const filtering = filterCount > 0 || query !== "";
+  const filters = useMemo<RecordFilters>(() => ({ categories, severities, query }), [categories, severities, query]);
+
+  // Tela instantânea: sem filtro, desenha a lista guardada; com filtro, filtra a
+  // lista guardada no aparelho na hora (o banco confirma em seguida, sem guardar).
+  const screen = useScreen(
+    filtering ? `registros?${JSON.stringify(filters)}` : "registros",
+    () => listRecords(filters),
+    {
+      store: !filtering,
+      seed: filtering ? filterLocally(readScreen<MedicalRecordSummary[]>("registros"), filters) : undefined,
+    },
+  );
+  const { refresh } = screen;
+
   // Recarrega quando gravações offline são enviadas ou a conexão volta.
   useEffect(() => {
-    const reload = () => setReloadKey((k) => k + 1);
+    const reload = () => void refresh();
     window.addEventListener(DRAFTS_CHANGED, reload);
     window.addEventListener("online", reload);
     return () => {
       window.removeEventListener(DRAFTS_CHANGED, reload);
       window.removeEventListener("online", reload);
     };
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
-    let active = true;
-    const filters: RecordFilters = { categories, severities, query };
-    listRecords(filters)
-      .then((records) => {
-        if (!active) return;
-        setState({ kind: "ready", records });
-        onFiltersChange?.(filters, records);
-      })
-      .catch((err) => active && setState({ kind: "error", message: err instanceof UserFacingError ? err.message : "Erro inesperado." }));
-    return () => {
-      active = false;
-    };
-  }, [categories, severities, query, onFiltersChange, reloadKey]);
+    if (screen.data) onFiltersChange?.(filters, screen.data);
+  }, [screen.data, filters, onFiltersChange]);
 
-  const filterCount = categories.length + severities.length;
-  const filtering = filterCount > 0 || query !== "";
+  const state = screen.data
+    ? ({ kind: "ready", records: screen.data } as const)
+    : screen.error
+      ? ({ kind: "error", message: screen.error } as const)
+      : ({ kind: "loading" } as const);
 
   function openSheet() {
     setDraftCats(categories);
@@ -304,6 +307,18 @@ export function RecordList({ onFiltersChange }: { onFiltersChange?: (f: RecordFi
         </div>
       </Sheet>
     </div>
+  );
+}
+
+/** Filtro feito no aparelho sobre a lista guardada (prévia instantânea). */
+function filterLocally(list: MedicalRecordSummary[] | undefined, f: RecordFilters): MedicalRecordSummary[] | undefined {
+  if (!list) return undefined;
+  const words = (f.query ?? "").toLowerCase().split(/s+/).filter(Boolean);
+  return list.filter(
+    (r) =>
+      (!f.categories?.length || f.categories.includes(r.category)) &&
+      (!f.severities?.length || f.severities.includes(r.severity)) &&
+      words.every((w) => `${r.title ?? ""} ${r.chief_complaint ?? ""}`.toLowerCase().includes(w)),
   );
 }
 

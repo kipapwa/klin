@@ -2,6 +2,7 @@
 
 import type { Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { setScreenUser } from "@/lib/screen-cache";
 import { getSupabase } from "@/lib/supabase";
 
 interface SessionState {
@@ -23,6 +24,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseConfigured) return;
     // INITIAL_SESSION chega logo após a inscrição; depois, login/logout/refresh.
     const { data } = getSupabase().auth.onAuthStateChange((_event, session) => {
+      // Guardado das telas instantâneas é separado por conta.
+      setScreenUser(session?.user.id ?? null);
       setState({ ready: true, session });
     });
     return () => data.subscription.unsubscribe();

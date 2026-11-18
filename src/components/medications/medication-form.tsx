@@ -1,7 +1,10 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { useScreen } from "@/hooks/use-screen";
+import { readScreen } from "@/lib/screen-cache";
+import type { Medication } from "@/lib/types";
 import { ClockIcon, PlusIcon, XIcon } from "@/components/ui/icons";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -282,41 +285,42 @@ function Form({ id, initial, recordId }: { id?: string; initial: MedicationFormV
   );
 }
 
+function toValues(m: Medication): MedicationFormValues {
+  const start = new Date(m.starts_at);
+  const times = m.schedule_type === "times" && m.dose_times?.length;
+  return {
+    name: m.name,
+    dosage: m.dosage ?? "",
+    instructions: m.instructions ?? "",
+    mode: times ? "times" : "interval",
+    times: times ? m.dose_times! : ["08:00"],
+    startDate: toDateLocal(start),
+    intervalHours: String(Number(m.interval_hours)),
+    startsAt: toDateTimeLocal(start),
+    durationDays: m.duration_days ? String(m.duration_days) : "",
+    notificationsEnabled: m.notifications_enabled,
+  };
+}
+
 export function MedicationFormPage() {
   const id = useSearchParams().get("id") ?? "";
   const editing = UUID_RE.test(id);
-  const [loaded, setLoaded] = useState<{ values: MedicationFormValues } | { error: string } | null>(null);
-
-  useEffect(() => {
-    if (!editing) return;
-    let active = true;
-    getMedication(id)
-      .then((found) => {
-        if (!active) return;
-        if (!found) return setLoaded({ error: "Remédio não encontrado." });
-        const m = found.medication;
-        const start = new Date(m.starts_at);
-        const times = m.schedule_type === "times" && m.dose_times?.length;
-        setLoaded({
-          values: {
-            name: m.name,
-            dosage: m.dosage ?? "",
-            instructions: m.instructions ?? "",
-            mode: times ? "times" : "interval",
-            times: times ? m.dose_times! : ["08:00"],
-            startDate: toDateLocal(start),
-            intervalHours: String(Number(m.interval_hours)),
-            startsAt: toDateTimeLocal(start),
-            durationDays: m.duration_days ? String(m.duration_days) : "",
-            notificationsEnabled: m.notifications_enabled,
-          },
-        });
-      })
-      .catch(() => active && setLoaded({ error: "Não foi possível carregar o remédio." }));
-    return () => {
-      active = false;
-    };
-  }, [editing, id]);
+  // Tela instantânea (formulário): abre com o guardado; o Form guarda os próprios
+  // valores, então o que o banco trouxer depois não apaga o que a pessoa digitou.
+  const screen = useScreen<{ medication: Medication; logs: unknown[] } | null>(
+    `remedio:${id}`,
+    () => (editing ? getMedication(id) : Promise.resolve(null)),
+    {
+      guard: true,
+      store: editing,
+      seed: editing
+        ? (() => {
+            const m = readScreen<Medication[]>("remedios")?.find((x) => x.id === id);
+            return m ? { medication: m, logs: [] } : undefined;
+          })()
+        : null,
+    },
+  );
 
   if (!editing) {
     return (
@@ -326,12 +330,13 @@ export function MedicationFormPage() {
       </>
     );
   }
-  if (!loaded) return <Spinner label="Carregando…" />;
-  if ("error" in loaded) return <p role="alert" className="text-sm text-red-700">{loaded.error}</p>;
+  if (screen.loading) return <Spinner label="Carregando…" />;
+  if (screen.data === null) return <p className="text-sm">Remédio não encontrado.</p>;
+  if (!screen.data) return <p role="alert" className="text-sm text-red-700">{screen.error}</p>;
   return (
     <>
       <h1 className="mb-3 text-2xl font-semibold tracking-tight">Editar remédio</h1>
-      <Form id={id} initial={loaded.values} recordId={null} />
+      <Form key={id} id={id} initial={toValues(screen.data.medication)} recordId={null} />
     </>
   );
 }

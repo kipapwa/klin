@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useScreen } from "@/hooks/use-screen";
 import { useSession } from "@/components/auth/session-provider";
 import { useSignOut } from "@/components/auth/use-sign-out";
 import { useLock } from "@/components/lock/lock-gate";
@@ -30,7 +31,6 @@ function tzName(tz: string) {
   return city === "Sao Paulo" ? "São Paulo" : city;
 }
 
-type ProfileState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; profile: Profile };
 type SheetKind = null | "privacy" | "timezone" | "pin" | "install";
 
 const pinInput =
@@ -42,7 +42,8 @@ export function SettingsView() {
   const lock = useLock();
   const installable = useSyncExternalStore(subscribeInstall, canInstall, canInstallServer);
   const [push, setPush] = useState<DevicePushState | null>(null);
-  const [profileState, setProfileState] = useState<ProfileState>({ kind: "loading" });
+  // Tela instantânea: o perfil guardado aparece na hora.
+  const profileScreen = useScreen("perfil", getProfile);
   const [canBiometric, setCanBiometric] = useState(false);
   const [theme, setTheme] = useState<Theme>("");
   const [sheet, setSheet] = useState<SheetKind>(null);
@@ -61,25 +62,16 @@ export function SettingsView() {
     }
   }, []);
 
-  const loadProfile = useCallback(async (): Promise<ProfileState> => {
-    try {
-      return { kind: "ready", profile: await getProfile() };
-    } catch (err) {
-      return { kind: "error", message: messageOf(err) };
-    }
-  }, []);
-
   // Abre na hora: tudo que vem do banco ou do navegador entra depois.
   useEffect(() => {
     let active = true;
     refreshPush().then((s) => active && setPush(s));
-    loadProfile().then((s) => active && setProfileState(s));
     biometricAvailable().then((ok) => active && setCanBiometric(ok));
     Promise.resolve(themeGet()).then((t) => active && setTheme(t));
     return () => {
       active = false;
     };
-  }, [refreshPush, loadProfile]);
+  }, [refreshPush]);
 
   async function run(action: () => Promise<void>, okText?: string) {
     setBusy(true);
@@ -95,12 +87,12 @@ export function SettingsView() {
   }
 
   function saveProfile(patch: Partial<Pick<Profile, "timezone" | "notification_privacy">>, okText: string) {
-    if (profileState.kind !== "ready") return;
-    const profile = profileState.profile;
+    const current = profileScreen.data;
+    if (!current) return;
     setSheet(null);
     return run(async () => {
-      await updateProfile(profile.id, patch);
-      setProfileState({ kind: "ready", profile: { ...profile, ...patch } });
+      await updateProfile(current.id, patch);
+      profileScreen.update({ ...current, ...patch }); // já sabe o resultado: não espera o banco
     }, okText);
   }
 
@@ -132,8 +124,8 @@ export function SettingsView() {
     }
   }
 
-  const profile = profileState.kind === "ready" ? profileState.profile : null;
-  const loadingValue = profileState.kind === "loading" ? "…" : null;
+  const profile = profileScreen.data ?? null;
+  const loadingValue = profileScreen.loading ? "…" : null;
   const deviceTz = typeof window === "undefined" ? "" : deviceTimeZone();
   const privacy = PRIVACY.find((p) => p.value === profile?.notification_privacy) ?? PRIVACY[0];
 
@@ -168,16 +160,13 @@ export function SettingsView() {
 
       <ProfileCard email={session?.user.email ?? ""} />
 
-      {profileState.kind === "error" ? (
+      {profileScreen.error && !profile ? (
         <div role="alert" className="mt-4 flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-          <span className="flex-1">{profileState.message}</span>
+          <span className="flex-1">{profileScreen.error}</span>
           <button
             type="button"
             className="rounded-lg bg-white px-3 py-1.5 font-semibold text-red-800 shadow-sm dark:bg-zinc-900 dark:text-red-200"
-            onClick={async () => {
-              setProfileState({ kind: "loading" });
-              setProfileState(await loadProfile());
-            }}
+            onClick={() => void profileScreen.refresh()}
           >
             Tentar de novo
           </button>

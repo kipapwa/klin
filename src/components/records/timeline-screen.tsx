@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { listMedications } from "@/lib/medications";
+import { getProfile } from "@/lib/profile";
+import { prefetchScreens } from "@/lib/screen-cache";
 import { PendingDrafts } from "@/components/offline/pending-drafts";
 import { exportReport } from "@/lib/export-report";
 import { CATEGORY_LABEL, SEVERITY_LABEL } from "@/lib/labels";
@@ -22,6 +25,11 @@ export function TimelineScreen() {
   const [current, setCurrent] = useState<{ filters: RecordFilters; records: MedicalRecordSummary[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Abas mais usadas já ficam guardadas para abrir na hora na primeira visita.
+  useEffect(() => {
+    void prefetchScreens({ perfil: getProfile, remedios: listMedications });
+  }, []);
 
   const onFiltersChange = useCallback((filters: RecordFilters, records: MedicalRecordSummary[]) => {
     setCurrent({ filters, records });

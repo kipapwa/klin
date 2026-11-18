@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { clearLock, lockServerSnapshot, lockSnapshot, subscribeLock, unlockWithBiometric, unlockWithPin } from "@/lib/app-lock";
+import { forgetUserScreens } from "@/lib/screen-cache";
 import { getSupabase } from "@/lib/supabase";
 
 export function useLock() {
@@ -40,6 +41,7 @@ function LockScreen({ biometric }: { biometric: boolean }) {
   async function forget() {
     if (!window.confirm("Sair da conta neste aparelho? Para voltar, entre de novo com o código enviado ao seu e-mail.")) return;
     clearLock();
+    forgetUserScreens();
     await getSupabase().auth.signOut();
     router.replace("/entrar/");
   }
@@ -55,6 +57,7 @@ function LockScreen({ biometric }: { biometric: boolean }) {
     if (result.ok) return;
     if (result.reason === "wipe") {
       clearLock();
+      forgetUserScreens();
       await getSupabase().auth.signOut();
       router.replace("/entrar/");
       return;

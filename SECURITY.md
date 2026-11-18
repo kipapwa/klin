@@ -59,5 +59,9 @@ Estas regras valem para todo código do repositório e têm prioridade sobre con
   - gravações sem internet ficam no IndexedDB do aparelho (sem criptografia própria, protegidas pelo sistema do aparelho) só até serem enviadas;
   - ao sair da conta, as pendentes são apagadas, com aviso antes;
   - o Service Worker guarda em cache apenas os arquivos do próprio site (páginas, JS, CSS, ícones), que não contêm dados de saúde; pedidos ao Supabase nunca são guardados.
+- **Telas instantâneas** (`src/lib/screen-cache.ts`): a última versão de cada tela (registros, notas, remédios, perfil) fica guardada no localStorage do aparelho, separada por conta, para a tela abrir na hora.
+  - É apagada ao sair da conta, no "Esqueci o PIN" e após erros demais no PIN.
+  - Não aumenta a exposição: a sessão de login fica no mesmo armazenamento e já dá acesso a tudo.
+  - Buscas com termo digitado não são guardadas, e nada clínico vai no nome das chaves.
 - **Relatório PDF:** gerado no aparelho (jsPDF, carregado sob demanda); os dados não passam por nenhum serviço externo. A transcrição bruta fica fora do relatório, e o nome do arquivo não leva dado clínico.
 - **Nada clínico na URL:** o termo de busca da linha do tempo e os nomes de remédios não vão para a URL (o GitHub Pages recebe a query string).

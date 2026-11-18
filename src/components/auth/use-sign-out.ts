@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { clearLock } from "@/lib/app-lock";
 import { deleteDraftsOf, pendingDraftCount } from "@/lib/offline-store";
 import { forgetThisDevice } from "@/lib/push";
+import { forgetUserScreens } from "@/lib/screen-cache";
 import { getSupabase } from "@/lib/supabase";
 
 /** Sair da conta sem deixar nada dela no aparelho (lembretes, PIN, gravações pendentes). */
@@ -24,6 +25,7 @@ export function useSignOut() {
     }
     await forgetThisDevice();
     clearLock();
+    forgetUserScreens(userId ?? null); // telas guardadas desta conta
     if (userId) await deleteDraftsOf(userId);
     await supabase.auth.signOut();
     router.replace("/entrar/");

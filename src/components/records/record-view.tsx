@@ -2,22 +2,44 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useScreen } from "@/hooks/use-screen";
+import { forgetScreen, readScreen } from "@/lib/screen-cache";
 import { Spinner } from "@/components/ui/spinner";
 import { exportReport } from "@/lib/export-report";
 import { buildFollowUpIcs, downloadIcs } from "@/lib/ics";
 import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, scheduleText, STATUS_LABEL } from "@/lib/labels";
 import { deleteRecord, getRecord, processRecord, signedAudioUrl, UserFacingError } from "@/lib/records";
-import type { MedicalRecord, Medication } from "@/lib/types";
+import type { MedicalRecord, MedicalRecordSummary, Medication } from "@/lib/types";
 import { SeverityBadge } from "./record-card";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type State =
-  | { kind: "loading" }
-  | { kind: "notFound" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; record: MedicalRecord; medications: Medication[] };
+type Loaded = { record: MedicalRecord; medications: Medication[] } | null; // null = não existe
+
+/** Primeira visita: desenha na hora com o resumo que veio da lista. */
+function seedFromList(id: string): Loaded | undefined {
+  const summary = readScreen<MedicalRecordSummary[]>("registros")?.find((r) => r.id === id);
+  if (!summary) return undefined;
+  return {
+    record: {
+      ...summary,
+      history: null,
+      observations: null,
+      plan: null,
+      transcript: null,
+      icd10_codes: [],
+      alert_signs: [],
+      follow_up_in_days: null,
+      follow_up_date: null,
+      audio_path: null,
+      audio_duration_s: null,
+      ai_provider: null,
+      processed_at: null,
+    },
+    medications: [],
+  };
+}
 
 const button =
   "rounded-xl border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900";
@@ -48,34 +70,20 @@ function TextSection({ title, text }: { title: string; text: string | null }) {
 export function RecordView() {
   const id = useSearchParams().get("id") ?? "";
   const router = useRouter();
-  const [state, setState] = useState<State>({ kind: "loading" });
+  const validId = UUID_RE.test(id);
+  // Tela instantânea: guardado da última visita (ou o resumo da lista) na hora.
+  const screen = useScreen<Loaded>(`registro:${id}`, () => (validId ? getRecord(id) : Promise.resolve(null)), {
+    seed: validId ? seedFromList(id) : null,
+  });
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "audio" | "ai" | "delete" | "pdf">(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!UUID_RE.test(id)) return { kind: "notFound" } as const;
-    try {
-      const found = await getRecord(id);
-      return found ? ({ kind: "ready", ...found } as const) : ({ kind: "notFound" } as const);
-    } catch (err) {
-      return { kind: "error", message: messageOf(err) } as const;
-    }
-  }, [id]);
+  if (screen.loading) return <Spinner label="Carregando…" />;
+  if (screen.data === null) return <p className="py-12 text-sm">Registro não encontrado.</p>;
+  if (!screen.data) return <p role="alert" className="py-12 text-sm text-red-700">{screen.error}</p>;
 
-  useEffect(() => {
-    let active = true;
-    load().then((s) => active && setState(s));
-    return () => {
-      active = false;
-    };
-  }, [load]);
-
-  if (state.kind === "loading") return <Spinner label="Carregando…" />;
-  if (state.kind === "notFound") return <p className="py-12 text-sm">Registro não encontrado.</p>;
-  if (state.kind === "error") return <p role="alert" className="py-12 text-sm text-red-700">{state.message}</p>;
-
-  const { record, medications } = state;
+  const { record, medications } = screen.data;
   const critical = record.severity === "critical";
 
   async function playAudio() {
@@ -98,7 +106,7 @@ export function RecordView() {
     } catch (err) {
       setActionError(messageOf(err));
     }
-    setState(await load());
+    await screen.refresh();
     setBusy(null);
   }
 
@@ -108,6 +116,8 @@ export function RecordView() {
     setActionError(null);
     try {
       await deleteRecord(record);
+      forgetScreen(`registro:${record.id}`);
+      forgetScreen("registros");
       router.replace("/");
     } catch (err) {
       setActionError(messageOf(err));
@@ -156,7 +166,7 @@ export function RecordView() {
         <Section title="Processamento">
           <p className="text-sm">{STATUS_LABEL[record.status]}</p>
           {record.status === "processing" ? (
-            <button type="button" className={`${button} mt-3`} onClick={async () => setState(await load())}>
+            <button type="button" className={`${button} mt-3`} onClick={() => void screen.refresh()}>
               Atualizar
             </button>
           ) : (
