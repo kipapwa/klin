@@ -16,6 +16,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { type DueDose, dosePayload, timingSafeEqual } from "../_shared/reminders.ts";
 import { vapidFromEnv } from "../_shared/vapid-env.ts";
 import { sendWebPush } from "../_shared/webpush.ts";
+import { secretKey } from "../_shared/supabase-keys.ts";
 
 const env = (name: string) => Deno.env.get(name) || undefined;
 const json = (status: number, body: Record<string, unknown>) =>
@@ -35,7 +36,12 @@ Deno.serve(async (req) => {
     return json(503, { error: "push não configurado" });
   }
 
-  const admin = createClient(env("SUPABASE_URL")!, env("SUPABASE_SERVICE_ROLE_KEY")!, {
+  const serviceKey = secretKey(env);
+  if (!serviceKey) {
+    console.error("[disparar-lembretes] chave secreta do Supabase ausente (crie uma em Project Settings > API Keys)");
+    return json(503, { error: "servidor não configurado" });
+  }
+  const admin = createClient(env("SUPABASE_URL")!, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 

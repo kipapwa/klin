@@ -8,6 +8,7 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { corsHeaders } from "../_shared/cors.ts";
+import { publishableKey } from "../_shared/supabase-keys.ts";
 import { testPayload } from "../_shared/reminders.ts";
 import { vapidFromEnv } from "../_shared/vapid-env.ts";
 import { sendWebPush } from "../_shared/webpush.ts";
@@ -28,7 +29,9 @@ Deno.serve(async (req) => {
   const vapid = vapidFromEnv(env);
   if (!vapid) return reply(503, { error: "Notificações ainda não configuradas no servidor." });
 
-  const supabase = createClient(env("SUPABASE_URL")!, env("SUPABASE_ANON_KEY")!, {
+  const apiKey = publishableKey(env);
+  if (!apiKey) return reply(503, { error: "Servidor não configurado." });
+  const supabase = createClient(env("SUPABASE_URL")!, apiKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });

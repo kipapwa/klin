@@ -18,6 +18,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { type AiConfig, AllProvidersFailed, baseMime, structureAudio } from "../_shared/ai.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { publishableKey } from "../_shared/supabase-keys.ts";
 import { addDays, localDate, medicationStart, safeTimeZone } from "../_shared/schedule.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -71,7 +72,9 @@ Deno.serve(async (req) => {
   const token = authHeader.replace(/^Bearer\s+/i, "");
   if (!token) return reply(401, { error: "Sessão expirada. Entre novamente." });
 
-  const supabase = createClient(env("SUPABASE_URL")!, env("SUPABASE_ANON_KEY")!, {
+  const apiKey = publishableKey(env);
+  if (!apiKey) return reply(503, { error: "Servidor não configurado." });
+  const supabase = createClient(env("SUPABASE_URL")!, apiKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
