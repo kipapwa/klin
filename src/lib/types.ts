@@ -34,8 +34,17 @@ export interface MedicalRecord extends MedicalRecordSummary {
   processed_at: string | null;
 }
 
+export interface MedicationLog {
+  id: string;
+  scheduled_for: string;
+  status: "taken" | "skipped" | "missed";
+  taken_at: string | null;
+  source: "app" | "notification" | "system";
+}
+
 export interface Medication {
   id: string;
+  record_id?: string | null;
   name: string;
   dosage: string | null;
   instructions: string | null;

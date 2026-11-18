@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { RequireAuth } from "@/components/auth/require-auth";
+import { BottomNav } from "@/components/bottom-nav";
 import { getSupabase } from "@/lib/supabase";
 
 /** Moldura das telas logadas: cabeçalho + conteúdo. */
@@ -36,9 +37,10 @@ export function AppShell({ title, back, children }: { title?: string; back?: str
           </button>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4">
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] pt-4">
         {children}
       </main>
+      <BottomNav />
     </RequireAuth>
   );
 }

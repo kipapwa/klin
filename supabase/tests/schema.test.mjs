@@ -76,9 +76,17 @@ test("registros: isolamento entre usuários e busca", async () => {
 
 test("medicamentos: agenda de doses", async () => {
   const rec = (await as(A, "insert into public.medical_records (title) values ('Receita') returning id")).rows[0].id;
+  const now = (await as(A, `insert into public.medications (name, interval_hours, starts_at)
+    values ('Agora', 8, now()) returning next_dose_at, starts_at`)).rows[0];
+  assert.equal(now.next_dose_at.getTime(), now.starts_at.getTime(), "começando agora: a 1ª dose é a de agora");
+
+  const recent = (await as(A, `insert into public.medications (name, interval_hours, starts_at)
+    values ('Recente', 8, now() - interval '40 minutes') returning next_dose_at, starts_at`)).rows[0];
+  assert.equal(recent.next_dose_at.getTime(), recent.starts_at.getTime(), "dose de 40 min atrás ainda é a próxima");
+
   const m = (await as(A, `insert into public.medications (record_id, name, interval_hours, duration_days, starts_at)
-    values ('${rec}', 'Dipirona', 8, 2, now() - interval '1 hour') returning id, next_dose_at, starts_at`)).rows[0];
-  assert.equal((m.next_dose_at - m.starts_at) / 3.6e6, 8, "próxima dose = início + 8h");
+    values ('${rec}', 'Dipirona', 8, 2, now() - interval '3 hours') returning id, next_dose_at, starts_at`)).rows[0];
+  assert.equal((m.next_dose_at - m.starts_at) / 3.6e6, 8, "dose de 3h atrás já passou: próxima = início + 8h");
 
   const at = new Date(m.next_dose_at).toISOString();
   await as(A, `insert into public.medication_logs (medication_id, scheduled_for, taken_at) values ('${m.id}', '${at}', now())`);

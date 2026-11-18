@@ -102,9 +102,13 @@ export function useRecorder() {
   useEffect(() => {
     if (!recording) return;
     const timer = setInterval(() => {
+      // Um tique pode chegar depois do onstop e antes de o React desligar este
+      // intervalo: sem esta checagem ele escreveria "recording" por cima de
+      // "recorded" e a tela ficaria presa gravando.
+      if (recorderRef.current?.state !== "recording") return;
       const seconds = (Date.now() - startedAtRef.current) / 1000;
       if (seconds >= MAX_RECORDING_SECONDS) stop();
-      else setState({ kind: "recording", seconds });
+      else setState((s) => (s.kind === "recording" ? { kind: "recording", seconds } : s));
     }, 250);
     return () => clearInterval(timer);
   }, [recording, stop]);

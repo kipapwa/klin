@@ -231,9 +231,11 @@ begin
   if tg_op = 'INSERT'
      or new.starts_at is distinct from old.starts_at
      or new.interval_hours is distinct from old.interval_hours then
-    -- Próxima dose = primeira ocorrência da grade (starts_at + k * intervalo) a partir de agora.
+    -- Próxima dose = primeira ocorrência da grade (starts_at + k * intervalo) que
+    -- venceu há no máximo 1 hora. A tolerância faz a dose de "começar agora"
+    -- (ou de 20 min atrás) ficar disponível para marcar, em vez de pular para a seguinte.
     new.next_dose_at := new.starts_at + make_interval(secs =>
-      greatest(0, ceil(extract(epoch from (now() - new.starts_at)) / (new.interval_hours * 3600)))
+      greatest(0, ceil(extract(epoch from (now() - interval '1 hour' - new.starts_at)) / (new.interval_hours * 3600)))
       * new.interval_hours * 3600);
   end if;
 

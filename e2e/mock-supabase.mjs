@@ -3,7 +3,21 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 
-export const state = { uploads: {}, records: [], meds: [], calls: [] };
+export const state = { uploads: {}, records: [], meds: [], logs: [], calls: [] };
+const H = 3_600_000;
+
+/** Imita o gatilho medications_compute_schedule (tolerância de 1 h). */
+function schedule(m, recompute) {
+  const start = Date.parse(m.starts_at);
+  m.ends_at = m.duration_days ? new Date(start + m.duration_days * 24 * H).toISOString() : null;
+  if (recompute) {
+    const step = Number(m.interval_hours) * H;
+    const k = Math.max(0, Math.ceil((Date.now() - H - start) / step));
+    m.next_dose_at = new Date(start + k * step).toISOString();
+  }
+  if (m.ends_at && m.next_dose_at && Date.parse(m.next_dose_at) > Date.parse(m.ends_at)) m.next_dose_at = null;
+  return m;
+}
 const USER = {
   id: "11111111-1111-4111-8111-111111111111", email: "teste@exemplo.com", aud: "authenticated",
   role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString(),
@@ -64,8 +78,58 @@ export function startSupabase(port) {
       }
     }
     if (p === "/rest/v1/medications") {
-      const rid = url.searchParams.get("record_id")?.replace("eq.", "");
-      return send(res, 200, state.meds.filter((m) => m.record_id === rid));
+      const eq = (k) => url.searchParams.get(k)?.replace("eq.", "");
+      if (req.method === "GET") {
+        if (eq("id")) {
+          const m = state.meds.find((x) => x.id === eq("id"));
+          return one ? (m ? send(res, 200, m) : send(res, 406, { code: "PGRST116" })) : send(res, 200, m ? [m] : []);
+        }
+        if (eq("record_id")) return send(res, 200, state.meds.filter((m) => m.record_id === eq("record_id")));
+        return send(res, 200, [...state.meds].sort((a, b) => (a.next_dose_at ?? "9").localeCompare(b.next_dose_at ?? "9")));
+      }
+      if (req.method === "POST") {
+        const m = schedule({
+          id: crypto.randomUUID(), record_id: null, dosage: null, instructions: null, duration_days: null, source: "manual",
+          is_active: true, notifications_enabled: true, ...JSON.parse(raw),
+        }, true);
+        state.meds.push(m);
+        return send(res, 201, one ? { id: m.id } : [{ id: m.id }]);
+      }
+      if (req.method === "PATCH") {
+        const m = state.meds.find((x) => x.id === eq("id"));
+        const patch = JSON.parse(raw);
+        const reschedule = "starts_at" in patch || "interval_hours" in patch;
+        Object.assign(m, patch);
+        schedule(m, reschedule);
+        state.calls.push(`PATCH medications ${Object.keys(patch).join(",")}`);
+        return send(res, 204);
+      }
+      if (req.method === "DELETE") {
+        state.meds = state.meds.filter((x) => x.id !== eq("id"));
+        state.logs = state.logs.filter((l) => l.medication_id !== eq("id"));
+        return send(res, 204);
+      }
+    }
+    if (p === "/rest/v1/medication_logs") {
+      if (req.method === "GET") {
+        const mid = url.searchParams.get("medication_id").replace("eq.", "");
+        return send(res, 200, state.logs.filter((l) => l.medication_id === mid).sort((a, b) => b.scheduled_for.localeCompare(a.scheduled_for)));
+      }
+      const log = { id: crypto.randomUUID(), ...JSON.parse(raw) };
+      // unique (medication_id, scheduled_for)
+      if (state.logs.some((l) => l.medication_id === log.medication_id && Date.parse(l.scheduled_for) === Date.parse(log.scheduled_for))) {
+        return send(res, 409, { code: "23505", message: "duplicate key value violates unique constraint" });
+      }
+      state.logs.push(log);
+      // gatilho medication_logs_advance_schedule
+      const m = state.meds.find((x) => x.id === log.medication_id);
+      if (m && (!m.next_dose_at || Date.parse(m.next_dose_at) <= Date.parse(log.scheduled_for))) {
+        const next = Date.parse(log.scheduled_for) + m.interval_hours * H;
+        const over = m.ends_at && next > Date.parse(m.ends_at);
+        m.next_dose_at = over ? null : new Date(next).toISOString();
+        if (over) m.is_active = false;
+      }
+      return send(res, 201);
     }
     if (p.startsWith("/storage/v1/object/sign/audio/")) {
       if (req.method === "POST") return send(res, 200, { signedURL: `${p.replace("/storage/v1", "")}?token=t` });
@@ -90,11 +154,11 @@ export function startSupabase(port) {
         icd10_codes: [{ code: "R07.4", description: "Dor torácica, não especificada" }], alert_signs: ["dor torácica aos esforços"],
         follow_up_in_days: 7, follow_up_date: "2026-11-25", ai_provider: "gemini", processed_at: new Date().toISOString(),
       });
-      state.meds.push({
+      state.meds.push(schedule({
         id: crypto.randomUUID(), record_id: recordId, name: "Losartana", dosage: "50 mg", instructions: null, interval_hours: 24,
         duration_days: null, starts_at: new Date().toISOString(), ends_at: null, next_dose_at: null, source: "ai", is_active: true,
         notifications_enabled: false,
-      });
+      }, true));
       return send(res, 200, {
         recordId, provider: "gemini", severity: "critical", medicationsCreated: 1,
         medicationsNeedingReview: [{ name: "Omeprazol", dosage: "20 mg", interval_hours: null, duration_days: null, start_time: null, instructions: null }],

@@ -96,7 +96,27 @@ try {
   await page.waitForSelector("text=Omeprazol");
   await page.screenshot({ path: `${shots}/3-resultado.png`, fullPage: true });
 
-  await page.click("text=Abrir nota");
+  // Remédio citado sem intervalo: "Cadastrar" abre o formulário pré-preenchido
+  // (via sessionStorage — o nome do remédio não pode ir para a URL).
+  await page.click("li:has-text('Omeprazol') >> text=Cadastrar");
+  await page.waitForURL("**/medicamentos/editar/");
+  if (page.url().includes("Omeprazol")) throw new Error("nome do remédio vazou para a URL");
+  if ((await page.inputValue("#name")) !== "Omeprazol" || (await page.inputValue("#dosage")) !== "20 mg") {
+    throw new Error("formulário não veio pré-preenchido");
+  }
+  await page.click("button:has-text('12 em 12h')");
+  await page.screenshot({ path: `${shots}/6-form.png`, fullPage: true });
+  await page.click("text=Cadastrar medicamento");
+  await page.waitForURL("**/medicamentos/detalhe/?id=*");
+  await page.waitForSelector("h1:has-text('Omeprazol')");
+  const omeprazol = state.meds.find((m) => m.name === "Omeprazol");
+  if (omeprazol.record_id !== rec.id || omeprazol.interval_hours !== 12 || omeprazol.source !== "manual") {
+    throw new Error("cadastro manual com dados errados: " + JSON.stringify(omeprazol));
+  }
+  step("remédio sem intervalo cadastrado a partir do resumo da IA");
+
+  await page.click("nav >> text=Registros");
+  await page.click("a[href*='/registro/']");
   await page.waitForURL("**/registro/?id=*");
   await page.waitForSelector("text=R07.4");
   await page.click("text=Ouvir gravação");
@@ -115,6 +135,45 @@ try {
   if (!/bg-red-50/.test(cls) || !/border-red-500/.test(cls)) throw new Error("card crítico sem destaque vermelho: " + cls);
   step("card crítico em vermelho no painel");
   await page.screenshot({ path: `${shots}/5-painel.png` });
+
+  // --- Medicamentos em uso -------------------------------------------------
+  await page.click("nav >> text=Medicamentos");
+  await page.waitForURL("**/medicamentos/");
+  const losartanaCard = page.locator("li", { hasText: "Losartana" });
+  await losartanaCard.locator("text=Hora da dose").waitFor();
+  await page.screenshot({ path: `${shots}/7-medicamentos.png`, fullPage: true });
+  await losartanaCard.locator("text=Marcar como tomado").click();
+  await page.waitForSelector("text=Dose de Losartana registrada ✓");
+  await losartanaCard.locator("text=Próxima dose").waitFor();
+  const losartana = state.meds.find((m) => m.name === "Losartana");
+  if (state.logs.filter((l) => l.medication_id === losartana.id && l.status === "taken").length !== 1) throw new Error("dose não registrada");
+  step("marcar como tomado avança para a próxima dose");
+
+  // Vindo da notificação (ação "Marcar como tomado" do Service Worker).
+  const pending = omeprazol.next_dose_at;
+  const fromPush = `${BASE}/medicamentos/?tomar=${omeprazol.id}&horario=${encodeURIComponent(pending)}`;
+  await page.goto(fromPush);
+  await page.waitForSelector("text=Confirmar a dose de Omeprazol");
+  await page.screenshot({ path: `${shots}/8-confirmar-push.png` });
+  await page.click("button:has-text('Tomei')");
+  await page.waitForSelector("text=Dose de Omeprazol registrada ✓");
+  const pushLog = state.logs.find((l) => l.medication_id === omeprazol.id);
+  if (pushLog?.source !== "notification" || Date.parse(pushLog.scheduled_for) !== Date.parse(pending)) {
+    throw new Error("dose da notificação registrada errada: " + JSON.stringify(pushLog));
+  }
+  await page.goto(fromPush);
+  await page.waitForSelector("text=Essa dose já foi registrada.");
+  step("confirmação pela notificação, sem registrar duas vezes");
+
+  await page.click("text=OK");
+  await page.click("li:has-text('Omeprazol') >> h2");
+  await page.waitForURL("**/medicamentos/detalhe/?id=*");
+  await page.waitForSelector("text=Tomada");
+  await page.click("[role=switch]");
+  await page.waitForSelector("[role=switch][aria-checked=false]:not([disabled])");
+  if (!state.calls.includes("PATCH medications notifications_enabled")) throw new Error("lembrete não foi alterado");
+  await page.screenshot({ path: `${shots}/9-detalhe.png`, fullPage: true });
+  step("detalhe: histórico, adesão e lembretes");
 
   await page.click("text=Sair");
   await page.waitForURL("**/entrar/");

@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { buildFollowUpIcs, downloadIcs } from "@/lib/ics";
-import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, STATUS_LABEL } from "@/lib/labels";
+import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, intervalText, STATUS_LABEL } from "@/lib/labels";
 import { deleteRecord, getRecord, processRecord, signedAudioUrl, UserFacingError } from "@/lib/records";
 import type { MedicalRecord, Medication } from "@/lib/types";
 import { SeverityBadge } from "./record-card";
@@ -41,12 +42,6 @@ function TextSection({ title, text }: { title: string; text: string | null }) {
       <p className="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>
     </Section>
   );
-}
-
-function intervalText(hours: number): string {
-  if (hours === 24) return "1 vez ao dia";
-  if (24 % hours === 0) return `de ${hours} em ${hours} horas (${24 / hours}x ao dia)`;
-  return `de ${hours} em ${hours} horas`;
 }
 
 export function RecordView() {
@@ -206,10 +201,10 @@ export function RecordView() {
           <ul className="flex flex-col gap-3 text-sm">
             {medications.map((m) => (
               <li key={m.id}>
-                <p className="font-medium">
+                <Link href={`/medicamentos/detalhe/?id=${m.id}`} className="font-medium text-teal-800 underline-offset-2 hover:underline dark:text-teal-300">
                   {m.name}
                   {m.dosage ? ` — ${m.dosage}` : ""}
-                </p>
+                </Link>
                 <p className="text-zinc-600 dark:text-zinc-400">
                   {intervalText(Number(m.interval_hours))}
                   {m.duration_days ? `, por ${m.duration_days} dias` : ", uso contínuo"}
