@@ -11,8 +11,14 @@
  *   "body":  "Hora da sua medicação programada.", // opcional
  *   "url":   "medicamentos/",                     // caminho relativo ao escopo
  *   "tag":   "dose-<medication_id>",              // agrupa/substitui notificações
- *   "dose":  { "medicationId": "<uuid>", "scheduledFor": "<ISO 8601>" } // opcional
+ *   "dose":  { "medicationId": "<uuid>", "scheduledFor": "<ISO 8601>",    // opcional
+ *              "exp": <ms>, "token": "<assinatura>", "markUrl": "<função marcar-dose>" }
  * }
+ *
+ * "Marcar como tomado": com exp/token/markUrl, o SW registra a dose direto
+ * (função marcar-dose, que confere a assinatura daquela dose) e mostra
+ * "Dose registrada". Sem eles, ou se falhar (sem internet, expirado), abre o
+ * app na tela de medicamentos, que registra com o login.
  *
  * PRIVACIDADE: o texto já chega pronto do servidor, que decide entre o modo
  * discreto (padrão) e o modo com nome do remédio, conforme a preferência do
@@ -29,7 +35,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // montadas no aparelho). Pedidos ao Supabase (outra origem) nunca passam
 // por aqui. Trocar CACHE_VERSION apaga os caches antigos.
 // ---------------------------------------------------------------------
-const CACHE_VERSION = "klin-v4";
+const CACHE_VERSION = "klin-v5";
 const APP_PAGES = ["", "gravar/", "medicamentos/", "medicamentos/detalhe/", "medicamentos/editar/", "registro/", "ajustes/", "entrar/"];
 
 self.addEventListener("install", (event) => {
@@ -130,12 +136,19 @@ function text(value, fallback, max) {
   return typeof value === "string" && value.trim() ? value.slice(0, max) : fallback;
 }
 
+/** Só a função marcar-dose do Supabase (ou o Supabase local dos testes). */
+const MARK_URL_RE = /^(https:\/\/[a-z0-9-]+\.supabase\.co|http:\/\/(127\.0\.0\.1|localhost):\d+)\/functions\/v1\/marcar-dose$/;
+
 function parseDose(value) {
   if (!value || typeof value !== "object") return null;
-  const { medicationId, scheduledFor } = value;
+  const { medicationId, scheduledFor, exp, token, markUrl } = value;
   if (typeof medicationId !== "string" || !UUID_RE.test(medicationId)) return null;
   if (typeof scheduledFor !== "string" || Number.isNaN(Date.parse(scheduledFor))) return null;
-  return { medicationId, scheduledFor };
+  const dose = { medicationId, scheduledFor };
+  if (Number.isSafeInteger(exp) && typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token) && typeof markUrl === "string" && MARK_URL_RE.test(markUrl)) {
+    Object.assign(dose, { exp, token, markUrl });
+  }
+  return dose;
 }
 
 self.addEventListener("push", (event) => {
@@ -168,9 +181,8 @@ self.addEventListener("push", (event) => {
 });
 
 /**
- * "Marcar como tomado": abre o app na tela de medicamentos com a dose na URL;
- * o app (com a sessão do usuário) grava em medication_logs, protegido pelo RLS.
- * O SW não tem o token de login, por isso não grava sozinho.
+ * Reserva do "Marcar como tomado": abre o app na tela de medicamentos com a
+ * dose na URL; o app (com a sessão do usuário) grava em medication_logs.
  */
 function markTakenPath(dose) {
   const q = new URLSearchParams({ tomar: dose.medicationId, horario: dose.scheduledFor });
@@ -192,6 +204,47 @@ async function focusOrOpen(path) {
 self.addEventListener("notificationclick", (event) => {
   const { url = "", dose = null } = event.notification.data || {};
   event.notification.close();
-  const target = event.action === "mark-taken" && dose ? markTakenPath(dose) : url;
-  event.waitUntil(focusOrOpen(target));
+  if (event.action === "mark-taken" && dose) {
+    event.waitUntil(markFromNotification(dose));
+    return;
+  }
+  event.waitUntil(focusOrOpen(url));
 });
+
+/** Registra a dose sem abrir o app; se não der, abre o app para registrar lá. */
+async function markFromNotification(dose) {
+  if (dose.token && dose.markUrl) {
+    try {
+      const res = await fetch(dose.markUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ medicationId: dose.medicationId, scheduledFor: dose.scheduledFor, exp: dose.exp, token: dose.token }),
+      });
+      if (res.ok) {
+        const { status } = await res.json().catch(() => ({}));
+        await confirmTaken(status === "already" ? "Essa dose já estava registrada ✓" : "Dose registrada ✓", dose.medicationId);
+        return;
+      }
+    } catch {
+      // sem internet: cai para abrir o app
+    }
+  }
+  return focusOrOpen(markTakenPath(dose));
+}
+
+/** Aviso curto (some sozinho) e telas abertas do app atualizam. */
+async function confirmTaken(body, medicationId) {
+  const tag = `tomada-${medicationId}`;
+  await self.registration.showNotification(DISCREET_TITLE, {
+    body,
+    tag,
+    silent: true,
+    icon: inScope("icons/transparent-192.png"),
+    badge: inScope("icons/badge-96.png"),
+    data: { url: "medicamentos/" },
+  });
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of windows) client.postMessage({ type: "klin:dose-marcada" });
+  await new Promise((resolve) => setTimeout(resolve, 4000));
+  for (const n of await self.registration.getNotifications({ tag })) n.close();
+}

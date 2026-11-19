@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useScreen } from "@/hooks/use-screen";
+import { useDoseMarked } from "@/hooks/use-dose-marked";
 import { forgetScreen, readScreen } from "@/lib/screen-cache";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -56,6 +57,7 @@ export function MedicationDetail() {
   const screen = useScreen<Loaded>(`remedio:${id}`, () => (validId ? getMedication(id) : Promise.resolve(null)), {
     seed: validId ? seedFromList(id) : null,
   });
+  useDoseMarked(() => void screen.refresh());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirm = useConfirm();

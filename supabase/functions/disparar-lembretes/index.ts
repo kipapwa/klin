@@ -13,7 +13,8 @@
  * Logs: só contagens, nunca nomes de remédios.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
-import { type DueDose, dosePayload, timingSafeEqual } from "../_shared/reminders.ts";
+import { DOSE_TOKEN_TTL_MS, signDose } from "../_shared/dose-token.ts";
+import { type DoseMark, type DueDose, dosePayload, timingSafeEqual } from "../_shared/reminders.ts";
 import { vapidFromEnv } from "../_shared/vapid-env.ts";
 import { sendWebPush } from "../_shared/webpush.ts";
 import { secretKey } from "../_shared/supabase-keys.ts";
@@ -66,11 +67,20 @@ Deno.serve(async (req) => {
   const byUser = new Map<string, typeof subs>();
   for (const s of subs ?? []) byUser.set(s.user_id, [...(byUser.get(s.user_id) ?? []), s]);
 
+  // "Marcar como tomado" direto da notificação: assinatura válida só para esta dose.
+  const markUrl = `${env("SUPABASE_URL")}/functions/v1/marcar-dose`;
+  const marks = new Map<DueDose, DoseMark>();
+  for (const dose of due) {
+    const exp = Date.parse(dose.scheduled_for) + DOSE_TOKEN_TTL_MS;
+    const token = await signDose(secret, { medicationId: dose.medication_id, userId: dose.user_id, scheduledFor: dose.scheduled_for, exp });
+    marks.set(dose, { exp, token, markUrl });
+  }
+
   const jobs = due.flatMap((dose) =>
     (byUser.get(dose.user_id) ?? []).map(async (sub) => ({
       subId: sub.id as string,
       // TTL de 30 min: lembrete que chega muito depois perde o sentido.
-      result: await sendWebPush(sub, dosePayload(dose), vapid, {
+      result: await sendWebPush(sub, dosePayload(dose, marks.get(dose)), vapid, {
         ttl: 1800,
         urgency: "high",
         topic: `d${dose.medication_id.replace(/-/g, "").slice(0, 31)}`,

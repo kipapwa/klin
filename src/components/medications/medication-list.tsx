@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useScreen } from "@/hooks/use-screen";
+import { useDoseMarked } from "@/hooks/use-dose-marked";
 import { Spinner } from "@/components/ui/spinner";
 import { useNow } from "@/hooks/use-now";
 import { dueSlot, isPendingSlot } from "@/lib/doses";
@@ -27,6 +28,7 @@ export function MedicationList() {
   const params = useSearchParams();
   // Tela instantânea: os remédios guardados aparecem na hora (o sininho usa o mesmo guardado).
   const screen = useScreen("remedios", listMedications);
+  useDoseMarked(() => void screen.refresh());
   const { refresh } = screen;
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);

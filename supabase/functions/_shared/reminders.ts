@@ -17,7 +17,21 @@ export interface PushPayload {
   body: string;
   url: string;
   tag: string;
-  dose?: { medicationId: string; scheduledFor: string };
+  dose?: {
+    medicationId: string;
+    scheduledFor: string;
+    /** Marcar direto da notificação (ver dose-token.ts). Sem isto, o botão abre o app. */
+    exp?: number;
+    token?: string;
+    markUrl?: string;
+  };
+}
+
+/** Assinatura que autoriza marcar esta dose pelo Service Worker. */
+export interface DoseMark {
+  exp: number;
+  token: string;
+  markUrl: string;
 }
 
 export const DISCREET_BODY = "Hora da sua medicação programada.";
@@ -27,14 +41,14 @@ export const DISCREET_BODY = "Hora da sua medicação programada.";
  * O id do remédio vai no payload (cifrado ponta a ponta) só para o botão
  * "Marcar como tomado" saber qual dose é.
  */
-export function dosePayload(dose: DueDose): PushPayload {
+export function dosePayload(dose: DueDose, mark?: DoseMark): PushPayload {
   const detailed = dose.privacy === "detailed";
   return {
     title: "Klin",
     body: detailed ? `Hora de tomar ${dose.name}${dose.dosage ? ` — ${dose.dosage}` : ""}.`.slice(0, 200) : DISCREET_BODY,
     url: "medicamentos/",
     tag: `dose-${dose.medication_id}`,
-    dose: { medicationId: dose.medication_id, scheduledFor: new Date(dose.scheduled_for).toISOString() },
+    dose: { medicationId: dose.medication_id, scheduledFor: new Date(dose.scheduled_for).toISOString(), ...(mark ?? {}) },
   };
 }
 

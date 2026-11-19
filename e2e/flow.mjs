@@ -12,7 +12,8 @@ import { execSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { startStatic, startSupabase, state } from "./mock-supabase.mjs";
+import { E2E_DOSE_SECRET, startStatic, startSupabase, state } from "./mock-supabase.mjs";
+import { DOSE_TOKEN_TTL_MS, signDose } from "../supabase/functions/_shared/dose-token.ts";
 
 const VAPID_TEST_KEY = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4";
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -589,6 +590,71 @@ try {
     throw new Error("ícones da notificação errados: " + JSON.stringify({ icon: n.icon, badge: n.badge }));
   }
   step("Service Worker exibe o push com o botão \"Marcar como tomado\" (só o ícone pequeno do Klin)");
+
+  // "Marcar como tomado" na notificação registra a dose SEM abrir o app (assinatura da dose).
+  const markDose = async (scheduledFor, { exp = Date.parse(scheduledFor) + DOSE_TOKEN_TTL_MS, tamper = false } = {}) => {
+    let token = await signDose(E2E_DOSE_SECRET, { medicationId: omeprazol.id, userId: state.profile.id, scheduledFor, exp });
+    if (tamper) token = (token[0] === "A" ? "B" : "A") + token.slice(1);
+    await cdp.send("ServiceWorker.deliverPushMessage", {
+      origin: BASE,
+      registrationId,
+      data: JSON.stringify({
+        title: "Klin",
+        body: "Hora da sua medicação programada.",
+        url: "medicamentos/",
+        tag: `dose-${omeprazol.id}`,
+        dose: { medicationId: omeprazol.id, scheduledFor, exp, token, markUrl: "http://127.0.0.1:54321/functions/v1/marcar-dose" },
+      }),
+    });
+    const sw = ctx.serviceWorkers().find((w) => w.url().startsWith(BASE));
+    if (!sw) throw new Error("Service Worker não encontrado");
+    await sw.evaluate(async (tag) => {
+      for (let i = 0; i < 40; i++) {
+        const [n] = await self.registration.getNotifications({ tag });
+        if (n?.data?.dose?.token) {
+          self.dispatchEvent(new NotificationEvent("notificationclick", { notification: n, action: "mark-taken" }));
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      throw new Error("notificação com assinatura não exibida");
+    }, `dose-${omeprazol.id}`);
+  };
+  const confirmation = async () => {
+    for (let i = 0; i < 40; i++) {
+      const body = await page.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications()).find((x) => x.tag.startsWith("tomada-"))?.body ?? null);
+      if (body) return body;
+      await page.waitForTimeout(100);
+    }
+    return null;
+  };
+  const doseAt = new Date(Math.floor(Date.now() / 60000) * 60000 - 5 * 60000).toISOString();
+  const pagesBefore = ctx.pages().length;
+  await markDose(doseAt);
+  const ok1 = await confirmation();
+  if (ok1 !== "Dose registrada ✓") throw new Error("sem confirmação da dose: " + ok1);
+  const viaPush = state.logs.find((l) => l.medication_id === omeprazol.id && Date.parse(l.scheduled_for) === Date.parse(doseAt));
+  if (viaPush?.source !== "notification" || viaPush.status !== "taken") throw new Error("dose não registrada pela notificação: " + JSON.stringify(viaPush));
+  if (ctx.pages().length !== pagesBefore) throw new Error("não deveria abrir o app");
+  await page.evaluate(async () => {
+    for (const n of await (await navigator.serviceWorker.ready).getNotifications()) n.close();
+  });
+  await markDose(doseAt); // mesmo horário de novo: não duplica
+  if ((await confirmation()) !== "Essa dose já estava registrada ✓") throw new Error("segunda marcação deveria avisar que já estava registrada");
+  if (state.logs.filter((l) => l.medication_id === omeprazol.id && Date.parse(l.scheduled_for) === Date.parse(doseAt)).length !== 1) throw new Error("dose duplicada");
+  step("\"Marcar como tomado\" na notificação registra a dose sem abrir o app (e não duplica)");
+
+  // Assinatura adulterada: a função recusa e o app abre para marcar lá (reserva de antes).
+  const before = state.logs.length;
+  const opened = ctx.waitForEvent("page", { timeout: 5000 }).catch(() => null);
+  await markDose(new Date(Date.parse(doseAt) - 60 * 60000).toISOString(), { tamper: true });
+  const fallbackPage = await opened;
+  const navigated = fallbackPage ?? page;
+  await navigated.waitForURL((u) => u.pathname.endsWith("/medicamentos/") && u.searchParams.has("tomar"), { timeout: 5000 });
+  if (state.logs.length !== before) throw new Error("assinatura adulterada registrou dose");
+  if (fallbackPage) await fallbackPage.close();
+  else await page.goto(`${BASE}/ajustes/`);
+  step("assinatura inválida é recusada e o app abre para marcar (reserva)");
 
   // --- Bloqueio por PIN e biometria ------------------------------------------
   // Autenticador virtual de plataforma (digital/rosto) pelo DevTools.

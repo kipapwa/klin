@@ -31,3 +31,10 @@ test("timingSafeEqual", () => {
   assert.equal(timingSafeEqual("segredo", "segredo-123"), false);
   assert.equal(timingSafeEqual("", ""), true);
 });
+
+test("com assinatura, o lembrete leva o necessário para marcar sem abrir o app (sem o nome do remédio)", () => {
+  const mark = { exp: 1, token: "t".repeat(43), markUrl: "https://x.supabase.co/functions/v1/marcar-dose" };
+  const p = dosePayload(dose, mark);
+  assert.deepEqual(p.dose, { medicationId: dose.medication_id, scheduledFor: "2026-11-18T20:00:00.000Z", ...mark });
+  assert.ok(!JSON.stringify(p).includes("Losartana"));
+});

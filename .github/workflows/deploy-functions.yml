@@ -113,3 +113,5 @@ jobs:
           supabase functions deploy testar-notificacao --project-ref "$PROJECT_REF" --use-api --yes
           # Chamada pelo Supabase Cron, sem usuário: protegida pelo x-cron-secret.
           supabase functions deploy disparar-lembretes --project-ref "$PROJECT_REF" --use-api --no-verify-jwt --yes
+          # Marcar dose pela notificação: sem login (autoriza pela assinatura da dose).
+          supabase functions deploy marcar-dose --project-ref "$PROJECT_REF" --use-api --no-verify-jwt --yes

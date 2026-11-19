@@ -3,6 +3,20 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { slotAfter } from "../src/lib/doses.ts";
+import { parseMarkRequest, verifyDose } from "../supabase/functions/_shared/dose-token.ts";
+
+/** Segredo de assinatura das doses no teste (no Supabase real: derivado do CRON_SECRET). */
+export const E2E_DOSE_SECRET = "segredo-e2e-marcar-dose";
+
+/** gatilho medication_logs_advance_schedule */
+function advance(log) {
+  const m = state.meds.find((x) => x.id === log.medication_id);
+  if (m && (!m.next_dose_at || Date.parse(m.next_dose_at) <= Date.parse(log.scheduled_for))) {
+    const next = slotAfter(m, Date.parse(log.scheduled_for), false);
+    m.next_dose_at = next === null ? null : new Date(next).toISOString();
+    if (next === null && m.ends_at) m.is_active = false;
+  }
+}
 
 export const state = {
   uploads: {}, records: [], meds: [], logs: [], calls: [], subs: [],
@@ -56,6 +70,27 @@ export function startSupabase(port) {
     if (p === "/auth/v1/user") return authed ? send(res, 200, USER) : send(res, 401, { msg: "invalid" });
     if (p === "/auth/v1/logout") return send(res, 204);
 
+    // Marcar dose pela notificação: sem login, autorizado pela assinatura (mesmo código da função real).
+    if (p === "/functions/v1/marcar-dose" && req.method === "POST") {
+      let mark = null;
+      try {
+        mark = parseMarkRequest(JSON.parse(raw));
+      } catch {
+        // corpo inválido
+      }
+      state.calls.push("POST marcar-dose");
+      if (!mark) return send(res, 400, { error: "pedido inválido" });
+      if (mark.exp < Date.now()) return send(res, 410, { error: "lembrete expirado" });
+      const med = state.meds.find((x) => x.id === mark.medicationId);
+      if (!med || !(await verifyDose(E2E_DOSE_SECRET, { ...mark, userId: state.profile.id }, mark.token))) return send(res, 403, { error: "não autorizado" });
+      if (state.logs.some((l) => l.medication_id === mark.medicationId && Date.parse(l.scheduled_for) === Date.parse(mark.scheduledFor))) {
+        return send(res, 200, { status: "already" });
+      }
+      const log = { id: crypto.randomUUID(), medication_id: mark.medicationId, scheduled_for: mark.scheduledFor, status: "taken", taken_at: new Date().toISOString(), source: "notification" };
+      state.logs.push(log);
+      advance(log);
+      return send(res, 200, { status: "taken" });
+    }
     if (!authed && !p.startsWith("/storage/v1/object/sign/")) return send(res, 401, { message: "no auth" });
 
     if (p === "/rest/v1/medical_records") {
@@ -182,13 +217,7 @@ export function startSupabase(port) {
         return send(res, 409, { code: "23505", message: "duplicate key value violates unique constraint" });
       }
       state.logs.push(log);
-      // gatilho medication_logs_advance_schedule
-      const m = state.meds.find((x) => x.id === log.medication_id);
-      if (m && (!m.next_dose_at || Date.parse(m.next_dose_at) <= Date.parse(log.scheduled_for))) {
-        const next = slotAfter(m, Date.parse(log.scheduled_for), false);
-        m.next_dose_at = next === null ? null : new Date(next).toISOString();
-        if (next === null && m.ends_at) m.is_active = false;
-      }
+      advance(log);
       return send(res, 201);
     }
     if (p.startsWith("/storage/v1/object/sign/audio/")) {
