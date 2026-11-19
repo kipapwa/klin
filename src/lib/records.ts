@@ -217,6 +217,32 @@ export async function signedAudioUrl(path: string): Promise<string> {
   return data.signedUrl;
 }
 
+export interface RecordDetails {
+  category: RecordCategory;
+  severity: RecordSeverity;
+  recordedAt: string; // ISO
+}
+
+const CATEGORIES: RecordCategory[] = ["exam", "symptom", "prescription", "follow_up", "procedure"];
+const SEVERITIES: RecordSeverity[] = ["routine", "attention", "critical"];
+
+/** Muda categoria, gravidade e dia/horário de um registro (RLS: só os próprios). */
+export async function updateRecordDetails(id: string, details: RecordDetails): Promise<void> {
+  if (!CATEGORIES.includes(details.category) || !SEVERITIES.includes(details.severity) || Number.isNaN(Date.parse(details.recordedAt))) {
+    throw new UserFacingError("Confira os campos e tente de novo.");
+  }
+  const { data, error } = await getSupabase()
+    .from("medical_records")
+    .update({ category: details.category, severity: details.severity, recorded_at: details.recordedAt })
+    .eq("id", id)
+    .select("id");
+  if (error) {
+    if (isNetworkFailure(error)) throw new UserFacingError("Sem internet. Tente de novo quando a conexão voltar.");
+    throw new UserFacingError(`Não foi possível salvar as alterações${error.code ? ` (código ${error.code})` : ""}.`);
+  }
+  if (!data?.length) throw new UserFacingError("Registro não encontrado.");
+}
+
 /** Apaga o registro e o áudio. Os remédios ficam (sem vínculo com o registro). */
 export async function deleteRecord(record: Pick<MedicalRecord, "id" | "audio_path">): Promise<void> {
   const supabase = getSupabase();

@@ -96,6 +96,14 @@ export function startSupabase(port) {
         state.records.push(rec);
         return send(res, 201, one ? { id: rec.id } : [{ id: rec.id }]);
       }
+      if (req.method === "PATCH") {
+        const id = url.searchParams.get("id")?.replace("eq.", "");
+        const r = state.records.find((x) => x.id === id);
+        const patch = JSON.parse(raw);
+        if (r) Object.assign(r, patch);
+        state.calls.push(`PATCH medical_records ${Object.keys(patch).join(",")}`);
+        return send(res, 200, r ? [{ id: r.id }] : []);
+      }
       if (req.method === "DELETE") {
         const id = url.searchParams.get("id").replace("eq.", "");
         state.records = state.records.filter((r) => r.id !== id);

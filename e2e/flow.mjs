@@ -493,6 +493,28 @@ try {
     throw new Error("registro manual errado: " + JSON.stringify(manual));
   }
   step("registro escrito sem IA: salvo com título, categoria e gravidade escolhidos");
+
+  // Editar dia/horário, categoria e gravidade de um registro salvo.
+  await page.click("#tela [aria-label='Editar dia, categoria e gravidade']");
+  const editSheet = page.locator("dialog[aria-label='Editar registro']");
+  await editSheet.waitFor();
+  await editSheet.locator("#edit-date").fill("2026-11-10");
+  await editSheet.locator("#edit-time").fill("07:45");
+  await editSheet.locator("[role=radio]:has-text('Procedimentos')").click();
+  await editSheet.locator("[role=radio]:has-text('Alerta')").click();
+  await page.screenshot({ path: `${shots}/22-editar-registro.png` });
+  await editSheet.locator("button:has-text('Salvar')").click();
+  await editSheet.waitFor({ state: "hidden" });
+  await page.waitForSelector("#tela header >> text=10/11/2026, 07:45");
+  await page.waitForSelector("#tela header >> text=Procedimentos");
+  if (manual.category !== "procedure" || manual.severity !== "critical" || new Date(manual.recorded_at).getTime() !== new Date(2026, 10, 10, 7, 45).getTime()) {
+    throw new Error("edição não chegou ao banco: " + JSON.stringify(manual));
+  }
+  if (!(await page.$("#tela header.border-red-500"))) throw new Error("registro grave deveria ficar em vermelho");
+  // Linha do tempo já mostra a mudança na hora (guardado atualizado).
+  await page.click("nav >> text=Registros");
+  await page.waitForSelector("#tela a[href*='/registro/'] >> text=Exame de sangue");
+  step("editar registro salvo: dia/horário, categoria e gravidade (nota e linha do tempo)");
   // volta a "Falar" para os próximos testes
   await page.evaluate(() => localStorage.setItem("klin:novo-registro", "voice"));
 

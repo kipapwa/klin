@@ -5,12 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { useScreen } from "@/hooks/use-screen";
 import { useConfirm } from "@/components/ui/confirm";
-import { forgetScreen, readScreen } from "@/lib/screen-cache";
+import { forgetScreen, readScreen, writeScreen } from "@/lib/screen-cache";
+import { PencilIcon } from "@/components/ui/icons";
+import { RecordEditSheet } from "./record-edit-sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { exportReport } from "@/lib/export-report";
 import { buildFollowUpIcs, downloadIcs } from "@/lib/ics";
 import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, scheduleText, STATUS_LABEL } from "@/lib/labels";
-import { deleteRecord, getRecord, processRecord, signedAudioUrl, UserFacingError } from "@/lib/records";
+import { deleteRecord, getRecord, processRecord, signedAudioUrl, UserFacingError, type RecordDetails } from "@/lib/records";
 import type { MedicalRecord, MedicalRecordSummary, Medication } from "@/lib/types";
 import { SeverityBadge } from "./record-card";
 
@@ -79,6 +81,7 @@ export function RecordView() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "audio" | "ai" | "delete" | "pdf">(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const confirm = useConfirm();
 
   if (screen.loading) return <Spinner label="Carregando…" />;
@@ -136,6 +139,20 @@ export function RecordView() {
     }
   }
 
+  /** Salvou na folha: a nota e a linha do tempo mudam na hora (sem esperar o banco). */
+  function applyDetails(details: RecordDetails) {
+    if (!screen.data) return;
+    const patch = { category: details.category, severity: details.severity, recorded_at: details.recordedAt };
+    screen.update({ ...screen.data, record: { ...screen.data.record, ...patch } });
+    const list = readScreen<MedicalRecordSummary[]>("registros");
+    if (list) {
+      const next = list.map((r) => (r.id === record.id ? { ...r, ...patch } : r));
+      next.sort((a, b) => Date.parse(b.recorded_at) - Date.parse(a.recorded_at));
+      writeScreen("registros", next);
+    }
+    setEditing(false);
+  }
+
   function addFollowUpToCalendar() {
     if (!record.follow_up_date) return;
     downloadIcs(
@@ -156,6 +173,15 @@ export function RecordView() {
           <span className="ml-auto">
             <SeverityBadge severity={record.severity} />
           </span>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            aria-label="Editar dia, categoria e gravidade"
+            title="Editar dia, categoria e gravidade"
+            className="-my-1 -mr-1 grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            <PencilIcon size={16} />
+          </button>
         </div>
         <h1 className={`mt-1 text-lg font-semibold ${critical ? "text-red-900 dark:text-red-100" : ""}`}>
           {record.title || "Registro sem título"}
@@ -290,6 +316,13 @@ export function RecordView() {
           {busy === "delete" ? "Apagando…" : "Apagar registro"}
         </button>
       </div>
+      <RecordEditSheet
+        open={editing}
+        recordId={record.id}
+        initial={{ category: record.category, severity: record.severity, recordedAt: record.recorded_at }}
+        onClose={() => setEditing(false)}
+        onSaved={applyDetails}
+      />
     </article>
   );
 }
