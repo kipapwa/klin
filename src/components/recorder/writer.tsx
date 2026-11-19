@@ -89,7 +89,7 @@ export function Writer() {
   if (phase.kind === "aiFailed") {
     return (
       <div className="flex flex-col gap-4 py-6">
-        <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+        <p role="alert" className="whitespace-pre-line break-words rounded-xl bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
           {phase.message}
         </p>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">O texto foi salvo. Você pode tentar de novo agora ou depois, pela nota.</p>

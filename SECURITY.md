@@ -34,6 +34,7 @@ Estas regras valem para todo código do repositório e têm prioridade sobre con
 ## 4. Dados clínicos (PHI) fora do banco
 
 - Nunca registrar transcrições, notas, nomes de remédios ou respostas da IA em `console.log`, mensagens de erro devolvidas ao cliente, analytics ou ferramentas de monitoramento. Logs carregam apenas ids, nome da IA, status HTTP e códigos de erro (há teste para isso em `ai.test.ts`).
+- Quando as IAs falham, a resposta ao app (e o log) traz um diagnóstico técnico por IA (`safeDetail` em `_shared/ai.ts`). Ele contém o código HTTP, o status/código do provedor e a mensagem de erro do provedor **sem nenhum trecho entre aspas**, que é onde os provedores repetem valores do pedido. Fica limitado a 160 caracteres por IA. Mensagens de erro dos provedores descrevem o pedido (campo inválido, modelo inexistente, limite), não o conteúdo.
 - O Gemini é chamado por `generateContent` (sem estado guardado no Google), não pela Interactions API, que armazena as interações por padrão.
 - Notificações push usam o modo discreto por padrão ("Hora da sua medicação programada"); o nome do remédio só aparece se o usuário escolher (Ajustes). O conteúdo do push é cifrado ponta a ponta (RFC 8291) para o aparelho: o serviço de push (Google/Apple/Mozilla) não lê o texto nem o id do remédio.
 - Ao sair da conta, a inscrição push daquele aparelho é apagada; ao entrar com outra conta no mesmo aparelho, `register_push_subscription` remove a inscrição da conta anterior. Ninguém recebe lembretes de outra pessoa.

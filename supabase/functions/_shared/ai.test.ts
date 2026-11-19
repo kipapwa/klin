@@ -6,7 +6,9 @@ import {
   AllProvidersFailed,
   GEMINI_INLINE_MAX_BYTES,
   MAX_TEXT_CHARS,
+  safeDetail,
   structureText,
+  structureTextWithGroq,
   structureAudio,
   structureWithGemini,
   structureWithGroq,
@@ -179,4 +181,38 @@ test("texto: corta no tamanho máximo antes de enviar", async () => {
   await structureText("x".repeat(MAX_TEXT_CHARS + 500), cfg, silent);
   const sent = JSON.parse(String(calls[0].init.body)).contents[0].parts[0].text as string;
   assert.ok(sent.length < MAX_TEXT_CHARS + 200);
+});
+
+// --- Diagnóstico quando as IAs falham -------------------------------------------
+test("safeDetail: código e motivo sem trechos entre aspas (onde poderia haver dado clínico)", () => {
+  // Formato real: valores do pedido vêm entre aspas nas mensagens dos provedores.
+  const google = { error: { code: 400, status: "INVALID_ARGUMENT", message: 'Invalid value at "contents[0].parts[0].text" ("Dor no peito, segredo")' } };
+  const d = safeDetail(google)!;
+  assert.equal(d, "INVALID_ARGUMENT 400 Invalid value at … (…)");
+  assert.ok(!d.includes("segredo") && !d.includes("Dor"));
+  assert.equal(safeDetail({ error: { message: "The model `llama-x` does not exist", type: "invalid_request_error", code: "model_not_found" } }), "model_not_found invalid_request_error The model … does not exist");
+  assert.equal(safeDetail("não é objeto"), null);
+  assert.ok(safeDetail({ error: { message: "x".repeat(500) } })!.length <= 160);
+});
+
+test("falha das duas IAs: resumo técnico por IA (sem conteúdo)", async () => {
+  mockFetch([
+    json({ error: { code: 400, status: "INVALID_ARGUMENT", message: 'Unknown name "foo"' } }, 400),
+    json({ error: { message: "The model `llama` does not exist", code: "model_not_found" } }, 404),
+  ]);
+  await assert.rejects(structureText("Febre desde ontem, segredo clínico.", cfg, silent), (e: unknown) => {
+    assert.ok(e instanceof AllProvidersFailed);
+    assert.equal(e.summary, "gemini: HTTP 400 (INVALID_ARGUMENT 400 Unknown name …) · groq: HTTP 404 (model_not_found The model … does not exist)");
+    assert.ok(!e.summary.includes("segredo"));
+    return true;
+  });
+});
+
+test("gpt-oss no Groq recebe reasoning_effort; outros modelos não", async () => {
+  const gpt = mockFetch([json({ choices: [{ message: { content: noteJson } }] })]);
+  await structureTextWithGroq("Febre.", { ...cfg, groqChatModel: "openai/gpt-oss-120b" });
+  assert.equal(JSON.parse(String(gpt[0].init.body)).reasoning_effort, "low");
+  const llama = mockFetch([json({ choices: [{ message: { content: noteJson } }] })]);
+  await structureTextWithGroq("Febre.", cfg);
+  assert.equal(JSON.parse(String(llama[0].init.body)).reasoning_effort, undefined);
 });

@@ -38,7 +38,8 @@ function aiConfig(): AiConfig {
     geminiModel: env("GEMINI_MODEL") ?? "gemini-3.8-flash",
     groqApiKey: env("GROQ_API_KEY"),
     groqTranscriptionModel: env("GROQ_TRANSCRIPTION_MODEL") ?? "whisper-large-v3",
-    groqChatModel: env("GROQ_CHAT_MODEL") ?? "llama-3.3-70b-versatile",
+    // llama-3.3-70b-versatile passou a ser plano Enterprise no Groq; gpt-oss-120b é de produção.
+    groqChatModel: env("GROQ_CHAT_MODEL") ?? "openai/gpt-oss-120b",
     timeoutMs: Number.isFinite(timeout) && timeout >= 5000 ? timeout : 45000,
   };
 }
@@ -111,9 +112,9 @@ Deno.serve(async (req) => {
     return reply(409, { error: "Registro não encontrado ou já em processamento." });
   }
 
-  const fail = async (status: number, message: string) => {
+  const fail = async (status: number, message: string, detail?: string) => {
     await supabase.from("medical_records").update({ status: "failed" }).eq("id", recordId);
-    return reply(status, { error: message });
+    return reply(status, detail ? { error: message, detail } : { error: message });
   };
 
   // --- Entrada: áudio gravado OU relato escrito (registro manual) -----------
@@ -145,7 +146,9 @@ Deno.serve(async (req) => {
   } catch (err) {
     if (err instanceof AllProvidersFailed) {
       if (err.notConfigured) return fail(503, "IA não configurada.");
-      if (err.rateLimited) return fail(503, "A IA está ocupada agora. Tente de novo em instantes.");
+      if (err.rateLimited) return fail(503, "A IA está ocupada agora. Tente de novo em instantes.", err.summary);
+      // Motivo técnico sem dado clínico (ver safeDetail): permite diagnosticar sem logs.
+      return fail(502, `A IA não conseguiu processar ${input.kind === "audio" ? "o áudio" : "o texto"}. Tente de novo.`, err.summary);
     }
     return fail(502, `A IA não conseguiu processar ${input.kind === "audio" ? "o áudio" : "o texto"}. Tente de novo.`);
   }

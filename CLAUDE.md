@@ -72,7 +72,7 @@ Atue como um Engenheiro de Software Sênior e Arquiteto de Sistemas Full-Stack e
 - *Hospedagem:* GitHub Pages (site estático, via GitHub Actions). Código com segredo roda em Supabase Edge Functions.
 - *Inteligência Artificial (Resiliência e Fallback Server-Side):*
   - *Fluxo Primário:* API do *Google Gemini* (`gemini-3.8-flash` por padrão, configurável em `GEMINI_MODEL`; o `gemini-2.5-flash` da especificação original desliga em 01/12/2026) recebendo o áudio diretamente e retornando um JSON estruturado (Schema Enforcement).
-  - *Fluxo de Fallback:* Caso a chamada ao Gemini falhe (timeout, erro 429/5xx ou indisponibilidade), acionar automaticamente a API do *Groq* (whisper-large-v3 para transcrição do áudio + llama-3.3-70b-versatile em modo JSON para estruturação).
+  - *Fluxo de Fallback:* Caso a chamada ao Gemini falhe (timeout, erro 429/5xx ou indisponibilidade), acionar automaticamente a API do *Groq* (whisper-large-v3 para transcrição do áudio + `openai/gpt-oss-120b` em modo JSON para estruturação; o `llama-3.3-70b-versatile` da especificação original passou a ser plano Enterprise no Groq. Configurável em `GROQ_CHAT_MODEL`).
 
 ---
 

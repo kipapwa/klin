@@ -38,20 +38,51 @@ export interface AiResult {
 export class AiError extends Error {
   readonly provider: Provider;
   readonly status: number | null;
-  constructor(provider: Provider, message: string, status: number | null = null) {
+  /** Motivo técnico devolvido pela IA (sem conteúdo clínico; ver safeDetail). */
+  readonly detail: string | null;
+  constructor(provider: Provider, message: string, status: number | null = null, detail: string | null = null) {
     super(message);
     this.provider = provider;
     this.status = status;
+    this.detail = detail;
   }
+}
+
+/**
+ * Motivo técnico do erro da IA, seguro para mostrar e registrar: só o código,
+ * o status e a mensagem SEM trechos entre aspas (onde um valor do pedido —
+ * dado clínico — poderia aparecer), cortada em 160 caracteres.
+ */
+export function safeDetail(body: unknown): string | null {
+  const err = (body as { error?: unknown } | null)?.error;
+  if (!err || typeof err !== "object") return null;
+  const e = err as { status?: unknown; code?: unknown; type?: unknown; message?: unknown };
+  const parts = [e.status, e.code, e.type]
+    .filter((v) => typeof v === "string" || typeof v === "number")
+    .map(String)
+    .filter((v, i, all) => all.indexOf(v) === i);
+  if (typeof e.message === "string") {
+    parts.push(
+      e.message
+        .replace(/"[^"]*"|'[^']*'|`[^`]*`|“[^”]*”/g, "…")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 160),
+    );
+  }
+  return parts.join(" ").trim() || null;
 }
 
 export class AllProvidersFailed extends Error {
   readonly rateLimited: boolean;
   readonly notConfigured: boolean;
+  /** Ex.: "gemini: HTTP 400 (INVALID_ARGUMENT …) · groq: HTTP 404 (model_not_found …)". */
+  readonly summary: string;
   constructor(errors: AiError[], notConfigured: boolean) {
     super(notConfigured ? "nenhuma IA configurada" : "todas as IAs falharam");
     this.rateLimited = errors.some((e) => e.status === 429);
     this.notConfigured = notConfigured;
+    this.summary = errors.map((e) => `${e.provider}: ${e.message}${e.detail ? ` (${e.detail})` : ""}`).join(" · ");
   }
 }
 
@@ -108,8 +139,13 @@ async function postJson(
     throw new AiError(provider, timedOut ? "tempo esgotado" : "erro de rede");
   }
   if (!res.ok) {
-    await res.body?.cancel();
-    throw new AiError(provider, `HTTP ${res.status}`, res.status);
+    let detail: string | null = null;
+    try {
+      detail = safeDetail(await res.json());
+    } catch {
+      // corpo sem JSON
+    }
+    throw new AiError(provider, `HTTP ${res.status}`, res.status, detail);
   }
   try {
     return (await res.json()) as Record<string, unknown>;
@@ -238,6 +274,8 @@ async function groqNote(transcript: string, label: string, cfg: AiConfig, model:
       model: cfg.groqChatModel,
       temperature: 0.2,
       max_completion_tokens: 8192,
+      // Modelos de raciocínio (gpt-oss): pouco raciocínio basta e sobra espaço para o JSON.
+      ...(cfg.groqChatModel.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: `${SYSTEM_PROMPT}\n\n${GROQ_JSON_INSTRUCTIONS}` },
@@ -310,7 +348,7 @@ async function runChain(cfg: AiConfig, log: Logger, calls: Record<Provider, () =
       return result;
     } catch (err) {
       const e = err instanceof AiError ? err : new AiError(provider, "erro inesperado");
-      log.error(`${provider} falhou: ${e.message}`);
+      log.error(`${provider} falhou: ${e.message}${e.detail ? ` (${e.detail})` : ""}`);
       errors.push(e);
     }
   }

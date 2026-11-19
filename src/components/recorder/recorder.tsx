@@ -119,7 +119,7 @@ export function Recorder() {
   if (send.kind === "failed") {
     return (
       <div className="flex flex-col gap-4 py-8">
-        <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+        <p role="alert" className="whitespace-pre-line break-words rounded-xl bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
           {send.message}
         </p>
         {send.recordId ? (
@@ -149,7 +149,7 @@ export function Recorder() {
     case "error":
       return (
         <div className="flex flex-col gap-4 py-8">
-          <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+          <p role="alert" className="whitespace-pre-line break-words rounded-xl bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
             {state.message}
           </p>
           <button type="button" className={primary} onClick={reset}>

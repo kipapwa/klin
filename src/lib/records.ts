@@ -191,11 +191,15 @@ export async function processRecord(recordId: string): Promise<ProcessResult> {
     body: { recordId },
   });
   if (error) {
-    let message = "A IA não conseguiu processar o áudio. Tente de novo.";
+    let message = "A IA não conseguiu processar. Tente de novo.";
     if (error instanceof FunctionsHttpError) {
       try {
-        const body = (await error.context.json()) as { error?: unknown };
+        const body = (await error.context.json()) as { error?: unknown; detail?: unknown };
         if (typeof body.error === "string") message = body.error;
+        // Motivo técnico (sem dado clínico): ajuda a corrigir quando a IA falha.
+        if (typeof body.detail === "string" && body.detail) message += `
+
+Detalhe técnico: ${body.detail.slice(0, 400)}`;
       } catch {
         // resposta sem JSON: fica a mensagem genérica
       }

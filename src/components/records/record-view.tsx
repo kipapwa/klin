@@ -261,7 +261,7 @@ export function RecordView() {
       ) : null}
 
       {actionError ? (
-        <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+        <p role="alert" className="whitespace-pre-line break-words rounded-xl bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
           {actionError}
         </p>
       ) : null}
