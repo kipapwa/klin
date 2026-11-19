@@ -263,8 +263,22 @@ try {
   await page.fill("#name", "Vitamina D");
   await page.click("button:has-text('2x ao dia')");
   await page.click("text=Adicionar horário");
-  if ((await page.locator("input[type=time]").count()) !== 3) throw new Error("adicionar horário não criou o 3º campo");
-  await page.click("[aria-label='Remover horário 00:00']"); // remove o que acabou de adicionar
+  if ((await page.locator("[aria-haspopup=dialog][aria-label^='Horário ']").count()) !== 3) throw new Error("adicionar horário não criou o 3º campo");
+  // Seletor de horas do app (o do Android deixava o "Definir" fora da tela).
+  await page.click("[aria-label='Horário 3: 00:00']");
+  const picker = page.locator("dialog[aria-label='Horário 3']");
+  await picker.waitFor();
+  await picker.locator("[role=radio][aria-label='21 h']").click();
+  await picker.locator("[role=radio][aria-label='30 min']").click();
+  await page.screenshot({ path: `${shots}/23-seletor-horas.png` });
+  const confirmBox = await picker.locator("button:has-text('Confirmar')").boundingBox();
+  const viewport = page.viewportSize();
+  if (!confirmBox || confirmBox.y + confirmBox.height > viewport.height) throw new Error("botão Confirmar fora da tela: " + JSON.stringify(confirmBox));
+  await picker.locator("button:has-text('Confirmar')").click();
+  await picker.waitFor({ state: "hidden" });
+  await page.waitForSelector("[aria-label='Horário 3: 21:30']");
+  step("seletor de horas do app: escolhe hora e minuto com o Confirmar sempre visível");
+  await page.click("[aria-label='Remover horário 21:30']"); // remove o que acabou de adicionar
   await page.screenshot({ path: `${shots}/14-form-horarios.png`, fullPage: true });
   await page.click("text=Salvar remédio");
   await page.waitForSelector("text=Todos os dias às 08:00 e 20:00");
@@ -499,7 +513,13 @@ try {
   const editSheet = page.locator("dialog[aria-label='Editar registro']");
   await editSheet.waitFor();
   await editSheet.locator("#edit-date").fill("2026-11-10");
-  await editSheet.locator("#edit-time").fill("07:45");
+  await editSheet.locator("#edit-time").click();
+  const timeSheet = page.locator("dialog[aria-label='Horário do registro']");
+  await timeSheet.locator("[role=radio][aria-label='07 h']").click();
+  await timeSheet.locator("[role=radio][aria-label='45 min']").click();
+  await timeSheet.locator("button:has-text('Confirmar')").click();
+  await timeSheet.waitFor({ state: "hidden" });
+  await editSheet.locator("[aria-label='Horário do registro: 07:45']").waitFor();
   await editSheet.locator("[role=radio]:has-text('Procedimentos')").click();
   await editSheet.locator("[role=radio]:has-text('Alerta')").click();
   await page.screenshot({ path: `${shots}/22-editar-registro.png` });

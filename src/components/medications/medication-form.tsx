@@ -5,9 +5,10 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useScreen } from "@/hooks/use-screen";
 import { readScreen } from "@/lib/screen-cache";
 import type { Medication } from "@/lib/types";
-import { ClockIcon, PlusIcon, XIcon } from "@/components/ui/icons";
+import { PlusIcon, XIcon } from "@/components/ui/icons";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { TimeField } from "@/components/ui/time-field";
 import {
   INTERVAL_PRESETS,
   normalizeTimes,
@@ -172,13 +173,10 @@ function Form({ id, initial, recordId }: { id?: string; initial: MedicationFormV
             <ul className="flex flex-col gap-2" aria-label="Horários">
               {values.times.map((t, i) => (
                 <li key={i} className="flex items-center gap-2">
-                  <ClockIcon className="shrink-0 text-zinc-400" size={20} />
-                  <input
-                    type="time"
-                    aria-label={`Horário ${i + 1}`}
-                    className={`${input} py-2`}
+                  <TimeField
+                    label={`Horário ${i + 1}`}
                     value={t}
-                    onChange={(e) => set("times", values.times.map((x, j) => (j === i ? e.target.value : x)))}
+                    onChange={(next) => set("times", values.times.map((x, j) => (j === i ? next : x)))}
                   />
                   {values.times.length > 1 ? (
                     <button
@@ -231,7 +229,25 @@ function Form({ id, initial, recordId }: { id?: string; initial: MedicationFormV
               <label htmlFor="startsAt" className="text-sm text-zinc-600 dark:text-zinc-400">
                 Primeira dose
               </label>
-              <input id="startsAt" type="datetime-local" className={input} value={values.startsAt} onChange={(e) => set("startsAt", e.target.value)} aria-invalid={Boolean(errors.startsAt)} />
+              {/* Dia (calendário do celular) + hora (seletor do app); juntos formam o "YYYY-MM-DDTHH:MM". */}
+              <div className="grid grid-cols-[3fr_2fr] gap-2">
+                <input
+                  id="startsAt"
+                  type="date"
+                  aria-label="Dia da primeira dose"
+                  className={input}
+                  value={values.startsAt.slice(0, 10)}
+                  onChange={(e) => set("startsAt", `${e.target.value}T${values.startsAt.slice(11, 16) || "08:00"}`)}
+                  aria-invalid={Boolean(errors.startsAt)}
+                />
+                <TimeField
+                  id="startsAt-time"
+                  label="Hora da primeira dose"
+                  className="py-3"
+                  value={values.startsAt.slice(11, 16)}
+                  onChange={(next) => set("startsAt", `${values.startsAt.slice(0, 10)}T${next}`)}
+                />
+              </div>
               <FieldError id="startsAt-error" text={errors.startsAt} />
             </div>
           </>

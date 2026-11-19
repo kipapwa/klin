@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Sheet } from "@/components/ui/sheet";
+import { TimeField } from "@/components/ui/time-field";
 import { CATEGORY_ICON, CATEGORY_LABEL, SEVERITY_LABEL } from "@/lib/labels";
 import { fromLocalInputs, toLocalInputs } from "@/lib/record-edit";
 import { updateRecordDetails, UserFacingError, type RecordDetails } from "@/lib/records";
@@ -71,10 +72,7 @@ function EditForm({ recordId, initial, onClose, onSaved }: Props) {
             <span className="sr-only">Dia</span>
             <input id="edit-date" type="date" required className={input} value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="sr-only">Horário</span>
-            <input id="edit-time" type="time" required className={input} value={time} onChange={(e) => setTime(e.target.value)} />
-          </label>
+          <TimeField id="edit-time" label="Horário do registro" className="py-3" value={time} onChange={setTime} />
         </div>
       </div>
 

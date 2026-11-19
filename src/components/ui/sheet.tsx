@@ -22,7 +22,11 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
       ref={ref}
       className="sheet"
       aria-label={title}
-      onClose={onClose}
+      // Folha dentro de folha (ex.: horário dentro de "Editar registro"): o React
+      // repassa o "close" da folha de dentro para a de fora; só a própria fecha.
+      onClose={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       onClick={(e) => {
         if (e.target === ref.current) onClose(); // toque no fundo escuro
       }}
