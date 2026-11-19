@@ -281,6 +281,99 @@ try {
   await page.screenshot({ path: `${shots}/11-linha-do-tempo.png`, fullPage: true });
   step("linha do tempo: filtros por categoria e busca no texto");
 
+  // --- Transição entre telas (skill deslizar-entre-telas) -------------------
+  await page.evaluate(() => {
+    window.__dbg = [];
+    new MutationObserver((ms) => {
+      for (const m of ms) {
+        for (const n of m.addedNodes) if (n.classList?.contains("tela-transicao")) window.__dbg.push(["+", n.className, location.pathname, performance.now() | 0]);
+        for (const n of m.removedNodes) if (n.classList?.contains("tela-transicao")) window.__dbg.push(["-", performance.now() | 0]);
+      }
+    }).observe(document.body, { childList: true });
+    document.addEventListener("click", (e) => window.__dbg.push(["clique", e.target.closest?.("a")?.getAttribute("href") ?? e.target.tagName, location.pathname, performance.now() | 0]), true);
+    window.addEventListener("popstate", () => window.__dbg.push(["popstate", location.pathname, performance.now() | 0]), true);
+  });
+  const transition = async (dir, action) => {
+    const seen = page.waitForSelector(`.tela-transicao.${dir}`, { state: "attached", timeout: 2000 });
+    await action();
+    try {
+      await seen;
+    } catch (err) {
+      console.log("    DBG", dir, JSON.stringify(await page.evaluate(() => window.__dbg)));
+      throw err;
+    }
+    const info = await page.evaluate(() => {
+      const stage = document.querySelector(".tela-transicao");
+      return {
+        copies: stage?.querySelectorAll(".tela-copia").length ?? 0,
+        idsInCopies: stage?.querySelectorAll("[id]").length ?? -1,
+        realHidden: document.getElementById("tela")?.style.visibility === "hidden",
+      };
+    });
+    if (info.copies !== 2 || info.idsInCopies !== 0 || !info.realHidden) throw new Error(`transição ${dir} errada: ${JSON.stringify(info)}`);
+    await page.waitForSelector(".tela-transicao", { state: "detached", timeout: 1500 });
+    if ((await page.evaluate(() => document.getElementById("tela")?.style.visibility)) === "hidden") throw new Error("tela ficou escondida");
+  };
+  await transition("frente", () => page.click("a[href*='/registro/'] >> text=Dor no peito ao subir escadas"));
+  await page.waitForSelector("text=Queixa principal");
+  await transition("volta", () => page.click("[aria-label='Voltar']"));
+  await page.waitForSelector("text=Linha do tempo");
+  await transition("frente", () => page.click("a[href*='/registro/'] >> text=Dor no peito ao subir escadas"));
+  await transition("volta", () => page.goBack()); // voltar do celular
+  await page.waitForSelector("text=Linha do tempo");
+  // Troca de aba não anima.
+  await page.click("nav >> text=Remédios");
+  await page.waitForSelector("h1:has-text('Seus remédios')");
+  if (await page.locator(".tela-transicao").count()) throw new Error("troca de aba não deveria animar");
+  // "Reduzir movimento": nada anima.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.click("li:has-text('Omeprazol') >> h2");
+  await page.waitForSelector("h1:has-text('Omeprazol')");
+  if (await page.locator(".tela-transicao").count()) throw new Error("com reduzir movimento não deveria animar");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.click("nav >> text=Registros");
+  await page.waitForSelector("text=Linha do tempo");
+  step("transição entre telas: abre e volta (botão e voltar do celular), abas e reduzir movimento sem animação");
+
+  // --- Sem zoom (skill sem-zoom) ------------------------------------------------
+  const zoom = await page.evaluate(() => {
+    const fake = (type, fingers) => {
+      const e = new Event(type, { cancelable: true, bubbles: true });
+      if (fingers) Object.defineProperty(e, "touches", { value: { length: fingers } });
+      document.body.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const inputs = [...document.querySelectorAll("input:not([type=radio]):not([type=checkbox]), textarea, select")];
+    return {
+      viewport: document.querySelector("meta[name=viewport]")?.getAttribute("content"),
+      touchAction: getComputedStyle(document.documentElement).touchAction,
+      smallestInput: Math.min(...inputs.map((el) => parseFloat(getComputedStyle(el).fontSize))),
+      pinchBlocked: fake("touchmove", 2),
+      oneFingerFree: !fake("touchmove", 1),
+      gestureBlocked: fake("gesturestart"),
+    };
+  });
+  if (
+    !/maximum-scale=1/.test(zoom.viewport) || !/user-scalable=no/.test(zoom.viewport) ||
+    zoom.touchAction !== "manipulation" || zoom.smallestInput < 16 ||
+    !zoom.pinchBlocked || !zoom.oneFingerFree || !zoom.gestureBlocked
+  ) {
+    throw new Error("sem zoom incompleto: " + JSON.stringify(zoom));
+  }
+  for (const path of ["/gravar/", "/medicamentos/editar/", "/ajustes/"]) {
+    await page.goto(BASE + path);
+    if (path === "/gravar/") await page.click("[role=tab]:has-text('Escrever')");
+    await page.waitForTimeout(300);
+    const smallest = await page.evaluate(() =>
+      Math.min(...[...document.querySelectorAll("input:not([type=radio]):not([type=checkbox]), textarea")].map((el) => parseFloat(getComputedStyle(el).fontSize))),
+    );
+    if (smallest < 16) throw new Error(`campo com letra menor que 16px em ${path}: ${smallest}px (o iPhone daria zoom)`);
+  }
+  await page.evaluate(() => localStorage.setItem("klin:novo-registro", "voice")); // o app lembra a aba; volta a "Falar"
+  await page.goto(BASE + "/");
+  await page.waitForSelector("text=Linha do tempo");
+  step("sem zoom: viewport, toque duplo, pinça barrada (1 dedo livre) e campos com 16px+");
+
   // --- Relatório PDF ---------------------------------------------------------
   const pdfDownload = page.waitForEvent("download");
   await page.click("text=Relatório PDF");
@@ -510,7 +603,7 @@ try {
   await page.click("text=Editar horários");
   await page.waitForFunction(() => document.querySelector("#name")?.value === "Vitamina D", null, fast);
   await page.click("nav >> text=Ajustes");
-  await page.locator("nav[aria-label='Notificações'] >> text=Com o nome").waitFor(fast);
+  await page.locator("#tela nav[aria-label='Notificações'] >> text=Com o nome").waitFor(fast);
   await page.waitForSelector("header button[aria-label^='Lembretes']", fast);
   await page.unroute("**/rest/v1/**");
   step(`telas instantâneas: 6 telas abriram com o banco atrasado 4 s (total ${Date.now() - t0} ms)`);

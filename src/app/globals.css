@@ -113,3 +113,112 @@ dialog.confirm-dialog[open] {
     animation: none;
   }
 }
+
+/*
+ * Transição entre telas "igual ao WhatsApp" (skill deslizar-entre-telas;
+ * components/nav-transition.tsx). Animam-se cópias paradas das duas telas;
+ * usa "translate" (separado de "transform").
+ */
+.tela-transicao {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  overflow: hidden;
+  pointer-events: none;
+}
+.tela-copia {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--background);
+}
+.tela-entra-dir {
+  animation: tela-entra-dir 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+}
+.tela-recua {
+  animation: tela-recua 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.tela-recua::after,
+.tela-volta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+}
+.tela-recua::after {
+  animation: tela-escurece 0.3s ease both;
+}
+.tela-volta {
+  animation: tela-volta 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.tela-volta::after {
+  animation: tela-clareia 0.28s ease both;
+}
+.tela-sai-dir {
+  animation: tela-sai-dir 0.28s cubic-bezier(0.4, 0, 0.6, 1) both;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+}
+@keyframes tela-entra-dir {
+  from {
+    translate: 100% 0;
+  }
+}
+@keyframes tela-recua {
+  to {
+    translate: -25% 0;
+  }
+}
+@keyframes tela-escurece {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.12;
+  }
+}
+@keyframes tela-clareia {
+  from {
+    opacity: 0.12;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes tela-sai-dir {
+  to {
+    translate: 100% 0;
+  }
+}
+@keyframes tela-volta {
+  from {
+    translate: -25% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tela-transicao {
+    display: none;
+  }
+}
+
+/* ===== Sem zoom (skill sem-zoom) ===== */
+/* Toque duplo não aumenta a tela (e o toque responde sem atraso). */
+html,
+body {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%; /* iPhone deitado não aumenta a letra sozinho */
+  text-size-adjust: 100%;
+}
+/*
+ * O iPhone dá zoom em qualquer campo com letra menor que 16px. Fica na camada
+ * "base": as classes do Tailwind (todas >= 16px nos campos do app) continuam valendo.
+ */
+@layer base {
+  input,
+  textarea,
+  select,
+  [contenteditable] {
+    font-size: max(16px, 1em);
+  }
+}

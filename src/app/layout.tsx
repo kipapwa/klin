@@ -3,7 +3,11 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { SessionProvider } from "@/components/auth/session-provider";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { ConfirmProvider } from "@/components/ui/confirm";
+import { NavTransition } from "@/components/nav-transition";
+import { NoZoom } from "@/components/no-zoom";
+import { Suspense } from "react";
 import { contentSecurityPolicy } from "@/lib/csp";
+import { NAV_POP_SCRIPT } from "@/lib/nav-pop-script";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
@@ -31,6 +35,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Sem zoom (skill sem-zoom): maximumScale impede o iPhone de aumentar a tela ao
+  // tocar num campo; userScalable trava a pinça no Android. A pinça no iPhone é
+  // barrada no NoZoom. O zoom de acessibilidade do celular continua funcionando.
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#0f766e" },
@@ -49,10 +58,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <meta httpEquiv="Content-Security-Policy" content={contentSecurityPolicy} />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: NAV_POP_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">
         <SessionProvider>
-          <ConfirmProvider>{children}</ConfirmProvider>
+          <ConfirmProvider>
+            {/* #tela: o que a transição entre telas copia e anima. */}
+            <div id="tela" className="flex min-h-full flex-1 flex-col">
+              {children}
+            </div>
+            <Suspense fallback={null}>
+              <NavTransition />
+            </Suspense>
+            <NoZoom />
+          </ConfirmProvider>
         </SessionProvider>
         <ServiceWorkerRegister />
       </body>
