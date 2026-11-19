@@ -1,7 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { MicIcon } from "@/components/ui/icons";
+import { useDictation } from "@/hooks/use-dictation";
+import { appendDictation } from "@/lib/dictation";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { CATEGORY_ICON, CATEGORY_LABEL, SEVERITY_LABEL } from "@/lib/labels";
@@ -43,6 +46,15 @@ export function Writer() {
   const [severity, setSeverity] = useState<RecordSeverity>("routine");
   const [phase, setPhase] = useState<Phase>({ kind: "editing" });
   const [error, setError] = useState<string | null>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  // Ditado: cada frase reconhecida entra no texto (com pontuação falada).
+  const dictation = useDictation((spoken) => {
+    setText((t) => appendDictation(t, spoken).slice(0, MAX_TEXT_CHARS));
+    requestAnimationFrame(() => {
+      const el = textRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  });
 
   const unsaved = text.trim() !== "" && (phase.kind === "editing" || phase.kind === "saving");
   useLeaveGuard(unsaved ? "O texto ainda não foi salvo e será perdido." : null);
@@ -59,6 +71,7 @@ export function Writer() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (dictation.listening) dictation.stop();
     if (text.trim().length < MIN_TEXT_CHARS) {
       setError("Escreva um pouco mais sobre o que aconteceu.");
       return;
@@ -115,18 +128,62 @@ export function Writer() {
           O que aconteceu?
         </label>
         <textarea
+          ref={textRef}
           id="record-text"
           rows={8}
           maxLength={MAX_TEXT_CHARS}
-          autoFocus
+          autoFocus={!dictation.supported}
+          // Enquanto dita, o texto chega pela voz (evita o cursor brigar com o ditado).
+          readOnly={dictation.listening}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Ex.: Consulta com a cardiologista hoje. Pressão 14 por 9. Ela receitou losartana 50 mg uma vez ao dia e pediu retorno em 30 dias."
-          className={`${input} min-h-40 resize-y leading-relaxed`}
+          className={`${input} min-h-40 resize-y leading-relaxed ${dictation.listening ? "border-red-400 ring-2 ring-red-400/20" : ""}`}
         />
-        <p className="text-right text-xs text-zinc-400" aria-live="off">
-          {text.length.toLocaleString("pt-BR")}/{MAX_TEXT_CHARS.toLocaleString("pt-BR")}
-        </p>
+        {dictation.listening && dictation.interim ? (
+          <p aria-live="polite" className="rounded-lg bg-zinc-100 px-3 py-2 text-sm italic text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            {dictation.interim}…
+          </p>
+        ) : null}
+        <div className="flex items-center gap-3">
+          {dictation.supported ? (
+            dictation.listening ? (
+              <button
+                type="button"
+                onClick={dictation.stop}
+                className="flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm"
+              >
+                <span aria-hidden className="h-2.5 w-2.5 animate-pulse rounded-sm bg-white motion-reduce:animate-none" />
+                Parar
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={dictation.start}
+                className="flex items-center gap-2 rounded-full border border-teal-600 bg-white px-4 py-2 text-sm font-semibold text-teal-800 dark:bg-zinc-900 dark:text-teal-200"
+              >
+                <MicIcon size={18} />
+                Ditar
+              </button>
+            )
+          ) : null}
+          <span className="flex-1 text-xs text-zinc-500" aria-live="polite">
+            {dictation.listening ? "Ouvindo… fale normalmente. Diga “vírgula”, “ponto final” ou “nova linha”." : ""}
+          </span>
+          <span className="text-xs text-zinc-400" aria-live="off">
+            {text.length.toLocaleString("pt-BR")}/{MAX_TEXT_CHARS.toLocaleString("pt-BR")}
+          </span>
+        </div>
+        {dictation.error ? (
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            {dictation.error}
+          </p>
+        ) : null}
+        {dictation.supported ? (
+          <p className="text-[11px] text-zinc-400">
+            O ditado usa o reconhecimento de voz do próprio celular (Google no Android, Apple no iPhone).
+          </p>
+        ) : null}
       </section>
 
       <section className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">

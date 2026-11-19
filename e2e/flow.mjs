@@ -69,6 +69,27 @@ const ctx = await browser.newContext({
   permissions: ["microphone", "notifications"],
 });
 await ctx.addInitScript(FAKE_PUSH);
+// O Chromium de teste não tem serviço de voz: reconhecedor simulado, comandado pelo teste.
+await ctx.addInitScript(() => {
+  class FakeRecognition {
+    constructor() {
+      window.__speech = this;
+    }
+    start() {}
+    stop() {
+      setTimeout(() => this.onend?.(), 0);
+    }
+    abort() {
+      this.stop();
+    }
+    say(text, isFinal) {
+      const result = { 0: { transcript: text }, isFinal, length: 1 };
+      this.onresult?.({ resultIndex: 0, results: [result] });
+    }
+  }
+  window.SpeechRecognition = FakeRecognition;
+  window.webkitSpeechRecognition = FakeRecognition;
+});
 const page = await ctx.newPage();
 const problems = [];
 const unexpected404 = [];
@@ -420,6 +441,22 @@ try {
   await page.click("[aria-label='Novo registro']");
   await page.waitForURL("**/gravar/");
   await page.click("[role=tab]:has-text('Escrever')");
+
+  // Ditado: o texto aparece enquanto fala (reconhecedor simulado pelo teste).
+  await page.click("button:has-text('Ditar')");
+  await page.waitForSelector("text=Ouvindo… fale normalmente");
+  await page.evaluate(() => window.__speech.say("dor de cabeça há dois", false));
+  await page.waitForSelector("text=dor de cabeça há dois…");
+  await page.evaluate(() => window.__speech.say("dor de cabeça há dois dias vírgula pior à noite ponto final", true));
+  await page.evaluate(() => window.__speech.say("tomei dipirona", true));
+  await page.waitForFunction(() => document.querySelector("#record-text")?.value === "Dor de cabeça há dois dias, pior à noite. Tomei dipirona");
+  if (!(await page.$eval("#record-text", (el) => el.readOnly))) throw new Error("campo deveria ficar só leitura enquanto dita");
+  await page.screenshot({ path: `${shots}/21-ditado.png`, fullPage: true });
+  await page.click("button:has-text('Parar')");
+  await page.waitForSelector("button:has-text('Ditar')");
+  if (await page.$eval("#record-text", (el) => el.readOnly)) throw new Error("campo deveria voltar a aceitar digitação");
+  step("ditado: texto aparece enquanto fala, com pontuação falada e maiúsculas");
+
   await page.fill("#record-text", "Dor de cabeça há dois dias, melhora com repouso.");
   // Sair com texto não salvo: pergunta na caixa do app; "Ficar" mantém o texto.
   await page.click("nav >> text=Registros");
