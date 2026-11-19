@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
-import { Recorder } from "@/components/recorder/recorder";
+import { NewRecord } from "@/components/recorder/new-record";
 
-export const metadata: Metadata = { title: "Gravar" };
+export const metadata: Metadata = { title: "Novo registro" };
 
-export default function RecordPage() {
+export default function NewRecordPage() {
   return (
-    <AppShell title="Nova gravação" back="/">
-      <Recorder />
+    <AppShell title="Novo registro" back="/">
+      <NewRecord />
     </AppShell>
   );
 }

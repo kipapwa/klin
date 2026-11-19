@@ -199,7 +199,17 @@ export function startSupabase(port) {
     if (p === "/functions/v1/processar-registro") {
       const { recordId } = JSON.parse(raw);
       const r = state.records.find((x) => x.id === recordId);
-      if (!r) return send(res, 409, { error: "Registro não encontrado, sem áudio ou já em processamento." });
+      if (!r) return send(res, 409, { error: "Registro não encontrado ou já em processamento." });
+      // Registro escrito à mão (sem áudio): a "IA" lê o texto.
+      if (!r.audio_path) {
+        state.calls.push("IA texto");
+        Object.assign(r, {
+          status: "ready", title: "Dor de cabeça leve", category: "symptom", severity: "routine",
+          chief_complaint: "Dor de cabeça há dois dias.", history: "", observations: "", plan: "Hidratação e repouso.",
+          icd10_codes: [{ code: "R51", description: "Cefaleia" }], alert_signs: [], ai_provider: "gemini", processed_at: new Date().toISOString(),
+        });
+        return send(res, 200, { recordId, provider: "gemini", severity: "routine", medicationsCreated: 0, medicationsNeedingReview: [] });
+      }
       Object.assign(r, {
         status: "ready", title: "Dor no peito ao subir escadas", category: "symptom", severity: "critical",
         chief_complaint: "Dor no peito em aperto há 2 dias, pior ao esforço.", history: "Hipertenso, usa losartana.", observations: "",

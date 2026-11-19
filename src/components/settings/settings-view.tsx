@@ -285,9 +285,7 @@ export function SettingsView() {
             label="Sair da conta"
             tone="red"
             right={null}
-            onClick={() => {
-              if (window.confirm("Sair da conta neste aparelho?")) void signOut();
-            }}
+            onClick={() => void signOut()}
           />,
         ]}
       </MenuGroup>

@@ -88,3 +88,39 @@ test("prefetchScreens busca só o que ainda não está guardado", async () => {
   assert.equal(readScreen("perfil"), "guardado");
   assert.deepEqual(readScreen("remedios"), ["r"]);
 });
+
+test("depois de sair, resposta atrasada do banco não grava mais nada", () => {
+  setScreenUser("ana");
+  writeScreen("registros", ["antes"]);
+  forgetUserScreens();
+  writeScreen("registros", ["resposta que chegou depois"]);
+  assert.equal(store.size, 0);
+  assert.equal(readScreen("registros"), undefined);
+});
+
+test("sair apaga tudo mesmo se o armazenamento reordenar as chaves a cada remoção", () => {
+  // Imita o Chrome: a ordem das chaves muda depois de cada removeItem.
+  const original = (globalThis as { localStorage: Storage }).localStorage;
+  const shuffled = {
+    ...original,
+    get length() {
+      return store.size;
+    },
+    key: (i: number) => [...store.keys()].reverse()[i] ?? null,
+    removeItem: (k: string) => {
+      store.delete(k);
+      const rest = [...store.entries()].reverse();
+      store.clear();
+      rest.forEach(([a, b]) => store.set(a, b));
+    },
+  };
+  (globalThis as { localStorage: unknown }).localStorage = shuffled;
+  try {
+    setScreenUser("ana");
+    for (let i = 0; i < 8; i++) writeScreen(`registro:${i}`, i);
+    forgetUserScreens();
+    assert.deepEqual([...store.keys()].filter((k) => k.includes("ana")), []);
+  } finally {
+    (globalThis as { localStorage: unknown }).localStorage = original;
+  }
+});

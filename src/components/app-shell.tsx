@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { GuardedLink as Link } from "@/components/ui/guarded-link";
 import type { ReactNode } from "react";
 import { RequireAuth } from "@/components/auth/require-auth";
 import { BottomNav } from "@/components/bottom-nav";

@@ -87,3 +87,29 @@ dialog.sheet[open] {
     animation: none;
   }
 }
+
+/* Caixa de confirmação do app (no lugar do window.confirm). */
+dialog.confirm-dialog {
+  margin: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  overflow: visible;
+}
+dialog.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+dialog.confirm-dialog[open] {
+  animation: confirm-in 0.14s ease-out;
+}
+@keyframes confirm-in {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog.confirm-dialog[open] {
+    animation: none;
+  }
+}

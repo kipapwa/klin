@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { useScreen } from "@/hooks/use-screen";
+import { useConfirm } from "@/components/ui/confirm";
 import { forgetScreen, readScreen } from "@/lib/screen-cache";
 import { Spinner } from "@/components/ui/spinner";
 import { exportReport } from "@/lib/export-report";
@@ -78,6 +79,7 @@ export function RecordView() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "audio" | "ai" | "delete" | "pdf">(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   if (screen.loading) return <Spinner label="Carregando…" />;
   if (screen.data === null) return <p className="py-12 text-sm">Registro não encontrado.</p>;
@@ -111,7 +113,16 @@ export function RecordView() {
   }
 
   async function remove() {
-    if (!window.confirm("Apagar este registro e o áudio? Os medicamentos cadastrados continuam na lista.")) return;
+    const ok = await confirm({
+      icon: "🗑️",
+      title: "Apagar este registro?",
+      message: record.audio_path
+        ? "A nota e o áudio serão apagados. Os remédios cadastrados continuam na lista."
+        : "A nota será apagada. Os remédios cadastrados continuam na lista.",
+      confirmLabel: "Apagar",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusy("delete");
     setActionError(null);
     try {
@@ -244,7 +255,7 @@ export function RecordView() {
 
       {record.transcript ? (
         <details className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Transcrição</summary>
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">{record.audio_path ? "Transcrição" : "Texto original"}</summary>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{record.transcript}</p>
         </details>
       ) : null}

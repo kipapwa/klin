@@ -6,20 +6,13 @@ import { readScreen } from "@/lib/screen-cache";
 import { SearchIcon, SlidersIcon, XIcon } from "@/components/ui/icons";
 import { Sheet } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
-import { CATEGORY_LABEL, SEVERITY_LABEL } from "@/lib/labels";
+import { CATEGORY_ICON, CATEGORY_LABEL, SEVERITY_LABEL } from "@/lib/labels";
 import { DRAFTS_CHANGED } from "@/lib/offline-store";
 import { listRecords, type RecordFilters } from "@/lib/records";
 import { groupByMonth, toggle } from "@/lib/timeline";
 import type { MedicalRecordSummary, RecordCategory, RecordSeverity } from "@/lib/types";
 import { RecordCard } from "./record-card";
 
-const CATEGORY_ICON: Record<RecordCategory, string> = {
-  symptom: "🤒",
-  exam: "🧪",
-  prescription: "💊",
-  follow_up: "📅",
-  procedure: "🩺",
-};
 const CATEGORIES = Object.keys(CATEGORY_ICON) as RecordCategory[];
 const SEVERITIES: RecordSeverity[] = ["critical", "attention", "routine"];
 const SEVERITY_DOT: Record<RecordSeverity, string> = {
@@ -214,7 +207,7 @@ export function RecordList({ onFiltersChange }: { onFiltersChange?: (f: RecordFi
           <p className="max-w-xs text-sm text-zinc-600 dark:text-zinc-400">
             {filtering
               ? "Tente outra palavra ou remova algum filtro."
-              : "Toque no microfone e conte como foi a consulta ou o que está sentindo."}
+              : "Toque no microfone para falar ou escrever como foi a consulta ou o que está sentindo."}
           </p>
           {filtering ? (
             <button type="button" onClick={clearAll} className="mt-2 rounded-xl border border-zinc-300 px-4 py-2 text-sm font-medium dark:border-zinc-700">

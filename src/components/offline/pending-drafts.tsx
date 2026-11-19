@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/components/auth/session-provider";
+import { useConfirm } from "@/components/ui/confirm";
 import { formatDateTime, formatDuration } from "@/lib/labels";
 import { deleteDraft, DRAFTS_CHANGED, listDrafts, type Draft } from "@/lib/offline-store";
 import { syncDrafts } from "@/lib/sync";
@@ -14,6 +15,7 @@ export function PendingDrafts() {
   const online = useOnline();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
+  const confirm = useConfirm();
 
   const refresh = useCallback(() => {
     if (userId) listDrafts(userId).then(setDrafts);
@@ -45,7 +47,10 @@ export function PendingDrafts() {
             <button
               type="button"
               className="text-xs text-red-700 underline dark:text-red-300"
-              onClick={() => window.confirm("Descartar esta gravação? Ela ainda não foi enviada.") && deleteDraft(d.clientId)}
+              onClick={async () => {
+                const ok = await confirm({ icon: "🗑️", title: "Descartar esta gravação?", message: "Ela ainda não foi enviada e não poderá ser recuperada.", confirmLabel: "Descartar", tone: "danger" });
+                if (ok) await deleteDraft(d.clientId);
+              }}
             >
               Descartar
             </button>

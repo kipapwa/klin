@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SessionProvider } from "@/components/auth/session-provider";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { ConfirmProvider } from "@/components/ui/confirm";
 import { contentSecurityPolicy } from "@/lib/csp";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
@@ -50,7 +51,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <ConfirmProvider>{children}</ConfirmProvider>
+        </SessionProvider>
         <ServiceWorkerRegister />
       </body>
     </html>

@@ -90,7 +90,18 @@ page.on("console", (m) => {
   if (m.type() === "error" || /Content Security Policy/i.test(text)) problems.push(text);
 });
 page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
-page.on("dialog", (d) => d.accept()); // confirmações do app (ex.: "Sair da conta?")
+// Regra do usuário: nenhuma caixa do sistema. Se aparecer uma, o teste reprova.
+page.on("dialog", (d) => {
+  problems.push(`caixa do sistema (${d.type()}): ${d.message()}`);
+  void d.dismiss();
+});
+/** Responde a caixa de confirmação do próprio app. */
+async function answerConfirm(button) {
+  const box = page.locator("dialog[role=alertdialog][open]");
+  await box.waitFor();
+  await box.locator(`button:has-text("${button}")`).click();
+  await box.waitFor({ state: "detached" }).catch(() => {});
+}
 const step = (s) => console.log("OK  " + s);
 const BASE = "http://localhost:3210"; // WebAuthn não aceita IP como domínio
 
@@ -312,6 +323,49 @@ try {
   if (Date.now() - Date.parse(synced.recorded_at) < 1000) throw new Error("recorded_at deveria ser a hora da gravação, não a do envio");
   step("conexão voltou: enviada sozinha (horário original) e processada pela IA");
 
+  // --- Registro escrito à mão --------------------------------------------------
+  await page.click("[aria-label='Novo registro']");
+  await page.waitForURL("**/gravar/");
+  await page.click("[role=tab]:has-text('Escrever')");
+  await page.fill("#record-text", "Dor de cabeça há dois dias, melhora com repouso.");
+  // Sair com texto não salvo: pergunta na caixa do app; "Ficar" mantém o texto.
+  await page.click("nav >> text=Registros");
+  await page.locator("dialog[role=alertdialog][open] >> text=Sair desta tela?").waitFor();
+  await page.waitForTimeout(300); // depois da animação de entrada
+  await page.screenshot({ path: `${shots}/18-confirmar-sair.png` });
+  await answerConfirm("Ficar");
+  if ((await page.inputValue("#record-text")) !== "Dor de cabeça há dois dias, melhora com repouso.") throw new Error("texto perdido");
+  if (!page.url().endsWith("/gravar/")) throw new Error("saiu da tela mesmo escolhendo Ficar");
+  await page.screenshot({ path: `${shots}/19-escrever.png`, fullPage: true });
+  await page.click("button:has-text('Organizar com IA')");
+  await page.waitForSelector("text=Nota criada");
+  const escrito = state.records.find((r) => r.transcript === "Dor de cabeça há dois dias, melhora com repouso.");
+  if (!escrito || escrito.audio_path || !state.calls.includes("IA texto")) throw new Error("registro escrito não foi para a IA: " + JSON.stringify(escrito));
+  await page.click("text=Abrir nota");
+  await page.waitForSelector("h1:has-text('Dor de cabeça leve')");
+  await page.waitForSelector("text=Texto original");
+  step("registro escrito: a IA organizou o texto (sem gravação)");
+
+  // Sem IA: salva como está, com título, categoria e gravidade escolhidos.
+  await page.click("nav >> text=Registros");
+  await page.click("[aria-label='Novo registro']");
+  await page.waitForURL("**/gravar/");
+  await page.waitForSelector("#record-text"); // lembrou a última escolha (Escrever)
+  await page.fill("#record-text", "Fiz exame de sangue em jejum. Resultado sai em 5 dias.");
+  await page.click("[role=switch][aria-label='Organizar com IA']");
+  await page.fill("#record-title", "Exame de sangue");
+  await page.click("[role=radio]:has-text('Exames')");
+  await page.click("[role=radio]:has-text('Atenção')");
+  await page.click("button:has-text('Salvar registro')");
+  await page.waitForSelector("h1:has-text('Exame de sangue')");
+  const manual = state.records.find((r) => r.title === "Exame de sangue");
+  if (manual.category !== "exam" || manual.severity !== "attention" || manual.status !== "ready" || manual.ai_provider !== "manual") {
+    throw new Error("registro manual errado: " + JSON.stringify(manual));
+  }
+  step("registro escrito sem IA: salvo com título, categoria e gravidade escolhidos");
+  // volta a "Falar" para os próximos testes
+  await page.evaluate(() => localStorage.setItem("klin:novo-registro", "voice"));
+
   // --- Ajustes: notificações e privacidade --------------------------------
   // Perfil já guardado (pré-carregado pela linha do tempo): Ajustes abriria na hora.
   // Para testar a falha, apaga o guardado e abre a tela do zero.
@@ -461,10 +515,15 @@ try {
   await page.unroute("**/rest/v1/**");
   step(`telas instantâneas: 6 telas abriram com o banco atrasado 4 s (total ${Date.now() - t0} ms)`);
 
-  await page.click("text=Sair");
+  await page.click("text=Sair da conta");
+  await page.locator("dialog[role=alertdialog][open] >> text=Sair da conta?").waitFor();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${shots}/20-confirmar-sair-conta.png` });
+  await answerConfirm("Sair");
   await page.waitForURL("**/entrar/");
   if (await page.evaluate(() => localStorage.getItem("klin:lock"))) throw new Error("PIN ficou no aparelho após sair");
-  if (await page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith("klin:tela:")))) throw new Error("telas guardadas ficaram no aparelho após sair");
+  const leftover = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("klin:tela:")));
+  if (leftover.length) throw new Error("telas guardadas ficaram no aparelho após sair: " + leftover.join(", "));
   if (state.subs.length !== 0 || !state.calls.includes("DELETE push_subscriptions")) throw new Error("sair não removeu a inscrição do aparelho");
   step("sair remove a inscrição deste aparelho");
   await page.goto(BASE + "/");

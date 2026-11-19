@@ -59,6 +59,10 @@ export class AllProvidersFailed extends Error {
 export const GEMINI_INLINE_MAX_BYTES = 14 * 1024 * 1024;
 
 const USER_PROMPT = "Estruture o relato deste áudio na nota clínica em JSON.";
+const USER_PROMPT_TEXT = "Estruture o relato escrito abaixo na nota clínica em JSON.";
+
+/** Tamanho máximo do relato escrito enviado à IA. */
+export const MAX_TEXT_CHARS = 20000;
 
 // ---------------------------------------------------------------------
 // Utilidades
@@ -133,7 +137,21 @@ export async function structureWithGemini(
   if (audio.byteLength > GEMINI_INLINE_MAX_BYTES) {
     throw new AiError("gemini", "áudio grande demais para envio direto");
   }
+  return geminiNote(
+    [{ inlineData: { mimeType: baseMime(mime), data: bytesToBase64(audio) } }, { text: USER_PROMPT }],
+    cfg,
+  );
+}
 
+/** Relato escrito (registro manual): mesmo esquema e mesma validação. */
+export async function structureTextWithGemini(text: string, cfg: AiConfig): Promise<AiResult> {
+  if (!cfg.geminiApiKey) throw new AiError("gemini", "sem chave");
+  const result = await geminiNote([{ text: `${USER_PROMPT_TEXT}\n"""\n${text}\n"""` }], cfg);
+  result.note.transcript = text.slice(0, 100000); // o texto da pessoa é a fonte fiel
+  return result;
+}
+
+async function geminiNote(userParts: unknown[], cfg: AiConfig): Promise<AiResult> {
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.geminiModel)}:generateContent`;
   const body = {
@@ -141,10 +159,7 @@ export async function structureWithGemini(
     contents: [
       {
         role: "user",
-        parts: [
-          { inlineData: { mimeType: baseMime(mime), data: bytesToBase64(audio) } },
-          { text: USER_PROMPT },
-        ],
+        parts: userParts,
       },
     ],
     generationConfig: {
@@ -157,7 +172,7 @@ export async function structureWithGemini(
 
   const data = await postJson("gemini", url, {
     method: "POST",
-    headers: { "x-goog-api-key": cfg.geminiApiKey, "Content-Type": "application/json" },
+    headers: { "x-goog-api-key": cfg.geminiApiKey!, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }, cfg.timeoutMs);
 
@@ -205,7 +220,17 @@ export async function structureWithGroq(
   );
   const transcript = typeof transcription.text === "string" ? transcription.text.trim() : "";
   if (!transcript) throw new AiError("groq", "transcrição vazia");
+  return groqNote(transcript, "Transcrição do relato", cfg, cfg.groqTranscriptionModel + "+" + cfg.groqChatModel);
+}
 
+/** Relato escrito: vai direto ao Llama (sem transcrição). */
+export async function structureTextWithGroq(text: string, cfg: AiConfig): Promise<AiResult> {
+  if (!cfg.groqApiKey) throw new AiError("groq", "sem chave");
+  return groqNote(text, "Relato escrito pelo paciente", cfg, cfg.groqChatModel);
+}
+
+async function groqNote(transcript: string, label: string, cfg: AiConfig, model: string): Promise<AiResult> {
+  const auth = { Authorization: "Bearer " + cfg.groqApiKey };
   const chat = await postJson("groq", "https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { ...auth, "Content-Type": "application/json" },
@@ -216,7 +241,7 @@ export async function structureWithGroq(
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: `${SYSTEM_PROMPT}\n\n${GROQ_JSON_INSTRUCTIONS}` },
-        { role: "user", content: `Transcrição do relato:\n"""\n${transcript}\n"""` },
+        { role: "user", content: `${label}:\n"""\n${transcript}\n"""` },
       ],
     }),
   }, cfg.timeoutMs);
@@ -225,9 +250,9 @@ export async function structureWithGroq(
   const text = choices?.[0]?.message?.content ?? "";
   try {
     const note = validateClinicalNote(parseJsonObject(text), transcript);
-    // A transcrição do Whisper é a fonte fiel; o LLM só reescreveria.
+    // O texto original (Whisper ou digitado) é a fonte fiel; o LLM só reescreveria.
     note.transcript = transcript.slice(0, 100000);
-    return { note, provider: "groq", model: `${cfg.groqTranscriptionModel}+${cfg.groqChatModel}` };
+    return { note, provider: "groq", model };
   } catch {
     throw new AiError("groq", "JSON inválido ou sem conteúdo");
   }
@@ -237,6 +262,7 @@ export async function structureWithGroq(
 // Orquestração
 // ---------------------------------------------------------------------
 type Step = (audio: Uint8Array, mime: string, cfg: AiConfig) => Promise<AiResult>;
+type TextStep = (text: string, cfg: AiConfig) => Promise<AiResult>;
 
 export interface Logger {
   error: (msg: string) => void;
@@ -250,15 +276,36 @@ export async function structureAudio(
   log: Logger,
   steps: Partial<Record<Provider, Step>> = {},
 ): Promise<AiResult> {
-  const chain: Array<[Provider, Step]> = [];
-  if (cfg.geminiApiKey) chain.push(["gemini", steps.gemini ?? structureWithGemini]);
-  if (cfg.groqApiKey) chain.push(["groq", steps.groq ?? structureWithGroq]);
+  return runChain(cfg, log, {
+    gemini: () => (steps.gemini ?? structureWithGemini)(audio, mime, cfg),
+    groq: () => (steps.groq ?? structureWithGroq)(audio, mime, cfg),
+  });
+}
+
+/** Registro escrito à mão: Gemini primeiro, Groq de reserva. */
+export async function structureText(
+  text: string,
+  cfg: AiConfig,
+  log: Logger,
+  steps: Partial<Record<Provider, TextStep>> = {},
+): Promise<AiResult> {
+  const clean = text.trim().slice(0, MAX_TEXT_CHARS);
+  return runChain(cfg, log, {
+    gemini: () => (steps.gemini ?? structureTextWithGemini)(clean, cfg),
+    groq: () => (steps.groq ?? structureTextWithGroq)(clean, cfg),
+  });
+}
+
+async function runChain(cfg: AiConfig, log: Logger, calls: Record<Provider, () => Promise<AiResult>>): Promise<AiResult> {
+  const chain: Array<[Provider, () => Promise<AiResult>]> = [];
+  if (cfg.geminiApiKey) chain.push(["gemini", calls.gemini]);
+  if (cfg.groqApiKey) chain.push(["groq", calls.groq]);
   if (chain.length === 0) throw new AllProvidersFailed([], true);
 
   const errors: AiError[] = [];
-  for (const [index, [provider, step]] of chain.entries()) {
+  for (const [index, [provider, call]] of chain.entries()) {
     try {
-      const result = await step(audio, mime, cfg);
+      const result = await call();
       if (index > 0) log.info(`Respondido pela reserva: ${provider}`);
       return result;
     } catch (err) {

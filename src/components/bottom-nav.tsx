@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { GuardedLink as Link } from "@/components/ui/guarded-link";
 import { usePathname } from "next/navigation";
 import { PillIcon, SettingsIcon, TimelineIcon } from "@/components/ui/icons";
 

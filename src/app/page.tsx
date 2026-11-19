@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <AppShell>
       <TimelineScreen />
-      <Fab href="/gravar/" label="Gravar">
+      <Fab href="/gravar/" label="Novo registro">
         <MicIcon size={28} />
       </Fab>
     </AppShell>

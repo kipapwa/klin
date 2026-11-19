@@ -5,6 +5,8 @@ import {
   AiError,
   AllProvidersFailed,
   GEMINI_INLINE_MAX_BYTES,
+  MAX_TEXT_CHARS,
+  structureText,
   structureAudio,
   structureWithGemini,
   structureWithGroq,
@@ -147,4 +149,34 @@ test("logs nunca contêm o conteúdo clínico", async () => {
   ]);
   await assert.rejects(structureAudio(audio, "audio/webm", cfg, { error: (m) => logs.push(m), info: (m) => logs.push(m) }));
   assert.ok(logs.every((l) => !l.includes("segredo")));
+});
+
+// --- Registro escrito (sem áudio) --------------------------------------------
+test("texto: Gemini recebe só texto (sem áudio) e a transcrição é o texto original", async () => {
+  const calls = mockFetch([json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: noteJson }] } }] })]);
+  const r = await structureText("  Dor de cabeça há 2 dias, tomei dipirona.  ", cfg, silent);
+  assert.equal(r.provider, "gemini");
+  assert.equal(r.note.transcript, "Dor de cabeça há 2 dias, tomei dipirona.");
+  const parts = JSON.parse(String(calls[0].init.body)).contents[0].parts;
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].inlineData, undefined);
+  assert.match(parts[0].text, /relato escrito[\s\S]*Dor de cabeça há 2 dias/);
+});
+
+test("texto: reserva no Groq vai direto ao Llama (sem Whisper)", async () => {
+  const calls = mockFetch([json({}, 503), json({ choices: [{ message: { content: noteJson } }] })]);
+  const r = await structureText("Febre de 38,5 desde ontem.", cfg, silent);
+  assert.equal(r.provider, "groq");
+  assert.equal(r.model, "llama-3.3-70b-versatile");
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].url, /chat\/completions$/);
+  assert.match(JSON.parse(String(calls[1].init.body)).messages[1].content, /Relato escrito pelo paciente:[\s\S]*Febre de 38,5/);
+  assert.equal(r.note.transcript, "Febre de 38,5 desde ontem.");
+});
+
+test("texto: corta no tamanho máximo antes de enviar", async () => {
+  const calls = mockFetch([json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: noteJson }] } }] })]);
+  await structureText("x".repeat(MAX_TEXT_CHARS + 500), cfg, silent);
+  const sent = JSON.parse(String(calls[0].init.body)).contents[0].parts[0].text as string;
+  assert.ok(sent.length < MAX_TEXT_CHARS + 200);
 });

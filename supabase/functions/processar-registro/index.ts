@@ -5,7 +5,8 @@
  *
  * 1. Confere o usuário e gasta 1 da cota diária de IA.
  * 2. "Reserva" o registro (status draft/failed -> processing).
- * 3. Baixa o áudio do bucket privado com o token do usuário (RLS).
+ * 3. Pega o áudio do bucket privado (token do usuário, RLS) ou, no registro
+ *    escrito à mão, o texto guardado em `transcript`.
  * 4. Gemini estrutura a nota; se falhar, Groq (Whisper + Llama).
  * 5. Grava a nota, o retorno e os medicamentos extraídos (source = 'ai').
  *
@@ -16,7 +17,7 @@
  * GEMINI_MODEL, GROQ_TRANSCRIPTION_MODEL, GROQ_CHAT_MODEL, AI_TIMEOUT_MS, AI_DAILY_LIMIT.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
-import { type AiConfig, AllProvidersFailed, baseMime, structureAudio } from "../_shared/ai.ts";
+import { type AiConfig, AllProvidersFailed, baseMime, MAX_TEXT_CHARS, structureAudio, structureText } from "../_shared/ai.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { publishableKey } from "../_shared/supabase-keys.ts";
 import { addDays, localDate, medicationStart, safeTimeZone } from "../_shared/schedule.ts";
@@ -25,6 +26,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ALLOWED_MIME = new Set(["audio/webm", "audio/ogg", "audio/m4a", "audio/mpeg", "audio/aac", "audio/wav"]);
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const STALE_PROCESSING_MS = 5 * 60 * 1000;
+/** Relato escrito mínimo para a IA analisar. */
+const MIN_TEXT_CHARS = 10;
 
 const env = (name: string) => Deno.env.get(name) || undefined;
 
@@ -97,16 +100,15 @@ Deno.serve(async (req) => {
     .from("medical_records")
     .update({ status: "processing" })
     .eq("id", recordId)
-    .not("audio_path", "is", null)
     .or(`status.in.(draft,failed),and(status.eq.processing,updated_at.lt."${staleBefore}")`)
-    .select("id, audio_path, audio_mime_type, recorded_at")
+    .select("id, audio_path, audio_mime_type, recorded_at, transcript")
     .maybeSingle();
   if (claimError) {
     log.error(`reserva: ${claimError.code ?? "erro"}`);
     return reply(500, { error: "Não foi possível processar agora. Tente de novo." });
   }
   if (!record) {
-    return reply(409, { error: "Registro não encontrado, sem áudio ou já em processamento." });
+    return reply(409, { error: "Registro não encontrado ou já em processamento." });
   }
 
   const fail = async (status: number, message: string) => {
@@ -114,27 +116,38 @@ Deno.serve(async (req) => {
     return reply(status, { error: message });
   };
 
-  // --- Áudio -----------------------------------------------------------
-  const { data: blob, error: downloadError } = await supabase.storage.from("audio").download(record.audio_path);
-  if (downloadError || !blob) {
-    log.error(`download do áudio falhou (registro ${recordId})`);
-    return fail(404, "Áudio não encontrado.");
+  // --- Entrada: áudio gravado OU relato escrito (registro manual) -----------
+  const writtenText = typeof record.transcript === "string" ? record.transcript.trim() : "";
+  let input: { kind: "audio"; audio: Uint8Array; mime: string } | { kind: "text"; text: string };
+  if (record.audio_path) {
+    const { data: blob, error: downloadError } = await supabase.storage.from("audio").download(record.audio_path);
+    if (downloadError || !blob) {
+      log.error(`download do áudio falhou (registro ${recordId})`);
+      return fail(404, "Áudio não encontrado.");
+    }
+    const mime = baseMime(record.audio_mime_type || blob.type || "audio/webm");
+    if (!ALLOWED_MIME.has(mime)) return fail(415, "Formato de áudio não suportado.");
+    if (blob.size === 0 || blob.size > MAX_AUDIO_BYTES) return fail(413, "Áudio vazio ou grande demais.");
+    input = { kind: "audio", audio: new Uint8Array(await blob.arrayBuffer()), mime };
+  } else if (writtenText.length >= MIN_TEXT_CHARS) {
+    input = { kind: "text", text: writtenText.slice(0, MAX_TEXT_CHARS) };
+  } else {
+    return fail(400, "Escreva um pouco mais sobre o que aconteceu para a IA analisar.");
   }
-  const mime = baseMime(record.audio_mime_type || blob.type || "audio/webm");
-  if (!ALLOWED_MIME.has(mime)) return fail(415, "Formato de áudio não suportado.");
-  if (blob.size === 0 || blob.size > MAX_AUDIO_BYTES) return fail(413, "Áudio vazio ou grande demais.");
-  const audio = new Uint8Array(await blob.arrayBuffer());
 
   // --- IA --------------------------------------------------------------
   let result;
   try {
-    result = await structureAudio(audio, mime, aiConfig(), log);
+    result =
+      input.kind === "audio"
+        ? await structureAudio(input.audio, input.mime, aiConfig(), log)
+        : await structureText(input.text, aiConfig(), log);
   } catch (err) {
     if (err instanceof AllProvidersFailed) {
       if (err.notConfigured) return fail(503, "IA não configurada.");
       if (err.rateLimited) return fail(503, "A IA está ocupada agora. Tente de novo em instantes.");
     }
-    return fail(502, "A IA não conseguiu processar o áudio. Tente de novo.");
+    return fail(502, `A IA não conseguiu processar ${input.kind === "audio" ? "o áudio" : "o texto"}. Tente de novo.`);
   }
   const { note } = result;
 

@@ -8,6 +8,14 @@ export const CATEGORY_LABEL: Record<RecordCategory, string> = {
   procedure: "Procedimentos",
 };
 
+export const CATEGORY_ICON: Record<RecordCategory, string> = {
+  symptom: "🤒",
+  exam: "🧪",
+  prescription: "💊",
+  follow_up: "📅",
+  procedure: "🩺",
+};
+
 export const SEVERITY_LABEL: Record<RecordSeverity, string> = {
   routine: "Rotina",
   attention: "Atenção",

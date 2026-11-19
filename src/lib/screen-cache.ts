@@ -64,16 +64,25 @@ export function forgetScreen(name: string) {
   }
 }
 
-/** Ao sair da conta: apaga tudo o que foi guardado deste usuário. */
+/**
+ * Ao sair da conta: apaga tudo o que foi guardado deste usuário E desliga o
+ * guardado até a próxima entrada — respostas do banco que chegarem depois
+ * (pedidos ainda em andamento) não voltam a gravar nada no aparelho.
+ */
 export function forgetUserScreens(id: string | null = userId) {
+  userId = null;
   memory.clear();
   if (!id) return;
   try {
     const mine = `${PREFIX}${id}:`;
-    for (let i = localStorage.length - 1; i >= 0; i--) {
+    // Lista ANTES de apagar: o navegador não garante a ordem das chaves depois
+    // de cada remoção, e apagar enquanto percorre pode pular alguma.
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k?.startsWith(mine)) localStorage.removeItem(k);
+      if (k?.startsWith(mine)) keys.push(k);
     }
+    keys.forEach((k) => localStorage.removeItem(k));
   } catch {
     // sem armazenamento
   }

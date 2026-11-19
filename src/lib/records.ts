@@ -136,6 +136,55 @@ export async function createRecordFromAudio(
   throw new UserFacingError(`Não foi possível salvar o registro${error?.code ? ` (código ${error.code})` : ""}.`);
 }
 
+export const MIN_TEXT_CHARS = 10;
+export const MAX_TEXT_CHARS = 20000;
+
+export interface TextRecordInput {
+  text: string;
+  /** true: a IA organiza (queixa, histórico, conduta, CID-10, remédios). */
+  useAi: boolean;
+  /** Só sem IA: */
+  title?: string;
+  category?: RecordCategory;
+  severity?: RecordSeverity;
+}
+
+/**
+ * Registro escrito à mão (sem gravação). O texto fica em `transcript`.
+ * Com IA: entra como rascunho e o chamador pede processRecord(id).
+ * Sem IA: já entra pronto, com o texto como queixa principal.
+ */
+export async function createTextRecord(input: TextRecordInput): Promise<string> {
+  const text = input.text.trim();
+  if (text.length < MIN_TEXT_CHARS) throw new UserFacingError("Escreva um pouco mais sobre o que aconteceu.");
+  if (text.length > MAX_TEXT_CHARS) throw new UserFacingError(`Texto muito longo (máx. ${MAX_TEXT_CHARS} caracteres).`);
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new UserFacingError("Sem internet. O texto continua aqui: tente de novo quando a conexão voltar.");
+  }
+
+  const base = { client_id: crypto.randomUUID(), transcript: text };
+  const row = input.useAi
+    ? { ...base, status: "draft" }
+    : {
+        ...base,
+        status: "ready",
+        title: (input.title?.trim() || text.split("\n")[0]).slice(0, 80),
+        category: input.category ?? "symptom",
+        severity: input.severity ?? "routine",
+        chief_complaint: text.slice(0, 5000),
+        ai_provider: "manual",
+        processed_at: new Date().toISOString(),
+      };
+  const { data, error } = await getSupabase().from("medical_records").insert(row).select("id").single();
+  if (error || !data) {
+    if (isNetworkFailure(error)) throw new UserFacingError("Sem internet. O texto continua aqui: tente de novo quando a conexão voltar.");
+    throw new UserFacingError(`Não foi possível salvar o registro${error?.code ? ` (código ${error.code})` : ""}.`);
+  }
+  // Sem apagar o guardado da linha do tempo: ela abre na hora e acrescenta o
+  // registro novo quando o banco responder (regra da tela instantânea).
+  return data.id as string;
+}
+
 /** Chama a Edge Function que estrutura a nota (Gemini, com Groq de reserva). */
 export async function processRecord(recordId: string): Promise<ProcessResult> {
   const { data, error } = await getSupabase().functions.invoke<ProcessResult>("processar-registro", {

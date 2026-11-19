@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { GuardedLink as Link } from "@/components/ui/guarded-link";
 import { useEffect, useState } from "react";
 import { useScreen } from "@/hooks/use-screen";
 import { PushPrompt } from "@/components/medications/push-prompt";

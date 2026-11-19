@@ -7,6 +7,7 @@ import { useScreen } from "@/hooks/use-screen";
 import { forgetScreen, readScreen } from "@/lib/screen-cache";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { useConfirm } from "@/components/ui/confirm";
 import { PushPrompt } from "./push-prompt";
 import { useNow } from "@/hooks/use-now";
 import { adherence } from "@/lib/doses";
@@ -57,6 +58,7 @@ export function MedicationDetail() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   if (screen.loading) return <Spinner label="Carregando…" />;
   if (screen.data === null) return <p className="text-sm">Remédio não encontrado.</p>;
@@ -184,7 +186,10 @@ export function MedicationDetail() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => window.confirm("Encerrar este tratamento? Os lembretes param.") && run(() => endTreatment(m.id))}
+            onClick={async () => {
+              const ok = await confirm({ icon: "⏹️", title: "Encerrar este tratamento?", message: "Os lembretes deste remédio param.", confirmLabel: "Encerrar" });
+              if (ok) void run(() => endTreatment(m.id));
+            }}
             className="rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium dark:border-zinc-700"
           >
             Encerrar
@@ -194,13 +199,23 @@ export function MedicationDetail() {
       <button
         type="button"
         disabled={busy}
-        onClick={() =>
-          window.confirm("Apagar este remédio e todo o histórico de doses?") &&
-          run(() => deleteMedication(m.id), () => {
-            forgetScreen(`remedio:${m.id}`);
-            router.replace("/medicamentos/");
-          })
-        }
+        onClick={async () => {
+          const ok = await confirm({
+            icon: "🗑️",
+            title: "Apagar este remédio?",
+            message: "O histórico de doses também será apagado.",
+            confirmLabel: "Apagar",
+            tone: "danger",
+          });
+          if (!ok) return;
+          await run(
+            () => deleteMedication(m.id),
+            () => {
+              forgetScreen(`remedio:${m.id}`);
+              router.replace("/medicamentos/");
+            },
+          );
+        }}
         className="self-end rounded-lg px-3 py-2 text-xs text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
       >
         Apagar remédio

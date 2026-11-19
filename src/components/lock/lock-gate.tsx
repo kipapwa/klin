@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type
 import { clearLock, lockServerSnapshot, lockSnapshot, subscribeLock, unlockWithBiometric, unlockWithPin } from "@/lib/app-lock";
 import { forgetUserScreens } from "@/lib/screen-cache";
 import { getSupabase } from "@/lib/supabase";
+import { useConfirm } from "@/components/ui/confirm";
 
 export function useLock() {
   return useSyncExternalStore(subscribeLock, lockSnapshot, lockServerSnapshot);
@@ -23,6 +24,7 @@ function LockScreen({ biometric }: { biometric: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const autoPrompted = useRef(false);
+  const confirm = useConfirm();
 
   // Com biometria ativada, já pede a digital/rosto ao aparecer (ao abrir o app
   // e ao voltar a ele). Se o navegador exigir um toque antes (Safari às vezes
@@ -39,7 +41,14 @@ function LockScreen({ biometric }: { biometric: boolean }) {
   }
 
   async function forget() {
-    if (!window.confirm("Sair da conta neste aparelho? Para voltar, entre de novo com o código enviado ao seu e-mail.")) return;
+    const ok = await confirm({
+      icon: "🔑",
+      title: "Esqueceu o PIN?",
+      message: "Você sai da conta neste aparelho. Para voltar, entre de novo com o código enviado ao seu e-mail.",
+      confirmLabel: "Sair da conta",
+      tone: "danger",
+    });
+    if (!ok) return;
     clearLock();
     forgetUserScreens();
     await getSupabase().auth.signOut();
