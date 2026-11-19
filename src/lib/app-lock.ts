@@ -40,7 +40,28 @@ function write(cfg: LockConfig) {
 // ---------------------------------------------------------------------
 // Estado observável (useSyncExternalStore)
 // ---------------------------------------------------------------------
-let locked = typeof window !== "undefined" && Boolean(read().pin);
+/**
+ * Recarga com o app na tela não é "abrir o app". O Next.js recarrega a página
+ * inteira ao trocar de tela quando a tela guardada é de outra versão (depois de
+ * publicar). Sem isto, essa recarga pedia a digital de novo. Ao sair da página
+ * com o app VISÍVEL e destravado, deixa um aviso de 5 s no sessionStorage (some
+ * ao fechar o app). App fechado ou em segundo plano: o aviso é apagado e trava.
+ */
+const RELOAD_KEY = "klin:lock:recarga";
+const RELOAD_WINDOW_MS = 5_000;
+
+function takeReloadHandoff(): boolean {
+  try {
+    const at = Number(sessionStorage.getItem(RELOAD_KEY));
+    sessionStorage.removeItem(RELOAD_KEY);
+    const age = Date.now() - at;
+    return at > 0 && age >= 0 && age < RELOAD_WINDOW_MS;
+  } catch {
+    return false;
+  }
+}
+
+let locked = typeof window !== "undefined" && Boolean(read().pin) && !takeReloadHandoff();
 let hiddenAt = 0;
 let version = 0;
 const listeners = new Set<() => void>();
@@ -50,9 +71,30 @@ function emit() {
 }
 
 if (typeof document !== "undefined") {
+  // Ordem dos eventos: na recarga, "pagehide" vem ANTES de a página ficar
+  // oculta; ao fechar ou trocar de app, ela fica oculta primeiro.
+  let leaving = false;
+  window.addEventListener("pagehide", () => {
+    leaving = true;
+    try {
+      if (!locked && document.visibilityState === "visible" && read().pin) sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+    } catch {
+      // sem sessionStorage: a recarga pede o desbloqueio (mais seguro)
+    }
+  });
+  // Voltou do cache de páginas (bfcache) sem recarregar: não está mais saindo.
+  window.addEventListener("pageshow", () => {
+    leaving = false;
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       hiddenAt = Date.now();
+      if (leaving) return; // recarga em andamento: mantém o aviso
+      try {
+        sessionStorage.removeItem(RELOAD_KEY);
+      } catch {
+        // nada a apagar
+      }
     } else if (hiddenAt && Date.now() - hiddenAt >= LOCK_AFTER_MS && read().pin) {
       locked = true;
       emit();

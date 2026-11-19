@@ -53,6 +53,7 @@ Estas regras valem para todo código do repositório e têm prioridade sobre con
 - O GitHub Pages não permite cabeçalhos próprios. A CSP vai numa `<meta>` (`src/lib/csp.ts`); `frame-ancestors`, `X-Frame-Options` e `Permissions-Policy` não podem ser aplicados. HTTPS é garantido pelo próprio GitHub Pages ("Enforce HTTPS").
 - **Bloqueio de tela (PIN/biometria)** — `src/lib/app-lock.ts`:
   - guarda só um hash PBKDF2-SHA256 (600 mil iterações, sal aleatório), nunca o PIN; recusa repetições e sequências;
+  - trava ao abrir o app e ao voltar depois de 1 min em segundo plano. Uma **recarga com o app visível** (o Next.js recarrega a página ao trocar de tela quando a tela guardada é de outra versão) não trava: ao sair da página visível e destravada, fica um aviso no sessionStorage válido por 5 s. Se a página ficou oculta antes de sair (app fechado ou trocado), o aviso é apagado e o app trava;
   - após 5 erros seguidos, espera crescente (30 s até 15 min); com 10 erros, sai da conta;
   - a biometria usa WebAuthn com o autenticador do próprio aparelho (`userVerification: "required"`);
   - **limite assumido:** é uma barreira contra quem pega o celular desbloqueado, não criptografia. Alguém com acesso técnico ao aparelho pode descobrir um PIN curto por força bruta a partir do hash. A proteção dos dados continua sendo a sessão + RLS, e a sessão pode ser encerrada pelo login.

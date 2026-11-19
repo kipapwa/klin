@@ -320,7 +320,6 @@ try {
     try {
       await seen;
     } catch (err) {
-      console.log("    DBG", dir, JSON.stringify(await page.evaluate(() => window.__dbg)));
       throw err;
     }
     const info = await page.evaluate(() => {
@@ -637,6 +636,17 @@ try {
   step("biometria recusada: fica bloqueado; PIN errado recusado; botão de digital destrava");
 
   await setVerified(false);
+  // Recarga com o app na tela (o Next faz isso ao trocar de tela após publicar): não trava.
+  await page.reload();
+  await page.waitForSelector("text=Bloquear agora");
+  if (await page.locator("text=App bloqueado").count()) throw new Error("recarga com o app aberto travou o app");
+  step("recarga da página com o app na tela não pede a digital de novo");
+
+  // Fechar o app (fica oculto antes de sair) e abrir de novo: trava.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
   await page.reload();
   await page.waitForSelector("text=App bloqueado");
   await page.fill("#unlock-pin", "2580");
