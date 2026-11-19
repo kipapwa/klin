@@ -29,7 +29,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // montadas no aparelho). Pedidos ao Supabase (outra origem) nunca passam
 // por aqui. Trocar CACHE_VERSION apaga os caches antigos.
 // ---------------------------------------------------------------------
-const CACHE_VERSION = "klin-v2";
+const CACHE_VERSION = "klin-v3";
 const APP_PAGES = ["", "gravar/", "medicamentos/", "medicamentos/detalhe/", "medicamentos/editar/", "registro/", "ajustes/", "entrar/"];
 
 self.addEventListener("install", (event) => {
@@ -65,19 +65,41 @@ async function cacheFirst(request) {
   return cached ?? putInCache(request, await fetch(request));
 }
 
-/** Páginas e dados de navegação: rede primeiro (versão nova), cache se offline. */
-async function networkFirst(request) {
-  try {
-    return await putInCache(request, await fetch(request));
-  } catch (err) {
-    const cached = (await caches.match(request)) ?? (await caches.match(request, { ignoreSearch: true }));
-    if (cached) return cached;
-    if (request.mode === "navigate") {
-      const home = await caches.match(inScope(""));
-      if (home) return home;
-    }
-    throw err;
+/**
+ * Páginas e dados de navegação do Next: entrega o guardado NA HORA e busca a
+ * versão nova em segundo plano (vale na próxima abertura). As páginas são só
+ * a "casca" do app — os dados de saúde vêm do Supabase, que nunca passa por
+ * aqui —, então são as mesmas para qualquer ?id=: guardamos sem a query.
+ */
+function pageKey(request) {
+  const url = new URL(request.url);
+  url.search = "";
+  return url.href;
+}
+
+async function staleWhileRevalidate(event) {
+  const { request } = event;
+  const key = pageKey(request);
+  const cache = await caches.open(CACHE_VERSION);
+  const cached = await cache.match(key);
+  const network = fetch(request)
+    .then(async (res) => {
+      if (res.ok && res.type === "basic") await cache.put(key, res.clone());
+      return res;
+    })
+    .catch(() => null);
+
+  if (cached) {
+    event.waitUntil(network); // atualiza sem fazer a pessoa esperar
+    return cached;
   }
+  const fresh = await network;
+  if (fresh) return fresh;
+  if (request.mode === "navigate") {
+    const home = await cache.match(inScope("")); // offline e página nunca aberta: abre o início
+    if (home) return home;
+  }
+  return Response.error();
 }
 
 self.addEventListener("fetch", (event) => {
@@ -87,7 +109,7 @@ self.addEventListener("fetch", (event) => {
   if (path.includes("/_next/static/") || path.includes("/icons/")) {
     event.respondWith(cacheFirst(request));
   } else {
-    event.respondWith(networkFirst(request));
+    event.respondWith(staleWhileRevalidate(event));
   }
 });
 

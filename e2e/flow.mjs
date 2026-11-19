@@ -54,10 +54,10 @@ const FAKE_PUSH = `
   };
 `;
 
-// Pré-carregamento interno do Next no export estático: pede
-// "<rota>/__next.<rota>.__PAGE__.txt", mas o build grava "__next.<rota>/__PAGE__.txt".
-// A navegação funciona; o 404 é esperado (limitação do Next 16.4).
-const KNOWN_404 = /\/__next\.[^/]+\.__PAGE__\.txt/;
+// Nenhum 404 é aceito. O do pré-carregamento do Next ("__next.<rota>.__PAGE__.txt")
+// é resolvido no build por scripts/fix-segment-prefetch.mjs; se voltar, as telas
+// passam a esperar a internet a cada toque.
+const KNOWN_404 = /$^/;
 
 await startSupabase(54321);
 await startStatic(outDir, 3210);

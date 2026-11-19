@@ -59,7 +59,9 @@ jobs:
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Versão fixa: "latest" consulta a API do GitHub e falha quando o limite de
+          # consultas estoura ("rate limit exceeded").
+          version: 3.1.0
 
       - name: Gravar segredos
         env:
