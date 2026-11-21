@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useScreen } from "@/hooks/use-screen";
 import { useDoseMarked } from "@/hooks/use-dose-marked";
+import { MedicationReportButton } from "./medication-report-button";
 import { Spinner } from "@/components/ui/spinner";
 import { useNow } from "@/hooks/use-now";
 import { dueSlot, isPendingSlot } from "@/lib/doses";
@@ -181,6 +182,8 @@ export function MedicationList() {
           </ul>
         </details>
       ) : null}
+
+      {state.meds.length > 0 ? <MedicationReportButton className="mt-4" /> : null}
     </div>
   );
 }

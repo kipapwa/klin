@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useScreen } from "@/hooks/use-screen";
 import { useDoseMarked } from "@/hooks/use-dose-marked";
+import { MedicationReportButton } from "./medication-report-button";
 import { forgetScreen, readScreen } from "@/lib/screen-cache";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -198,6 +199,7 @@ export function MedicationDetail() {
           </button>
         ) : null}
       </div>
+      <MedicationReportButton medicationId={m.id} />
       <button
         type="button"
         disabled={busy}

@@ -208,8 +208,11 @@ export function startSupabase(port) {
     }
     if (p === "/rest/v1/medication_logs") {
       if (req.method === "GET") {
-        const mid = url.searchParams.get("medication_id").replace("eq.", "");
-        return send(res, 200, state.logs.filter((l) => l.medication_id === mid).sort((a, b) => b.scheduled_for.localeCompare(a.scheduled_for)));
+        const mid = url.searchParams.get("medication_id")?.replace("eq.", "");
+        const since = url.searchParams.get("scheduled_for")?.replace("gte.", "");
+        state.calls.push(`GET medication_logs ${mid ? "remedio" : "relatorio"}`);
+        const rows = state.logs.filter((l) => (!mid || l.medication_id === mid) && (!since || Date.parse(l.scheduled_for) >= Date.parse(since)));
+        return send(res, 200, rows.sort((a, b) => b.scheduled_for.localeCompare(a.scheduled_for)));
       }
       const log = { id: crypto.randomUUID(), ...JSON.parse(raw) };
       // unique (medication_id, scheduled_for)

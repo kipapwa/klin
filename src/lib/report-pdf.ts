@@ -7,7 +7,7 @@ import { pdfSafe, type ReportDoc } from "./report.ts";
 export async function renderReportPdf(doc: ReportDoc): Promise<Blob> {
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
-  pdf.setProperties({ title: "Relatório clínico - Klin", creator: "Klin" });
+  pdf.setProperties({ title: `${pdfSafe(doc.title)} - Klin`, creator: "Klin" });
 
   const W = pdf.internal.pageSize.getWidth();
   const H = pdf.internal.pageSize.getHeight();

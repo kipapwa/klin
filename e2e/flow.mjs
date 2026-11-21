@@ -676,6 +676,27 @@ try {
   else await page.goto(`${BASE}/ajustes/`);
   step("assinatura inválida é recusada e o app abre para marcar (reserva)");
 
+  // Relatório dos remédios em PDF: agenda, adesão e histórico (com a dose marcada pela notificação).
+  await page.goto(`${BASE}/medicamentos/`);
+  await page.click("#tela button:has-text('Relatório dos remédios em PDF')");
+  const medSheet = page.locator("dialog[aria-label='Relatório dos remédios']");
+  await medSheet.locator("[role=radio]:has-text('7 dias')").click();
+  await page.screenshot({ path: `${shots}/24-relatorio-remedios.png` });
+  const medPdfDownload = page.waitForEvent("download");
+  await medSheet.locator("button:has-text('Baixar PDF')").click();
+  const medPdf = await medPdfDownload;
+  await medSheet.waitFor({ state: "hidden" });
+  const medPdfText = (await import("node:fs")).readFileSync(await medPdf.path(), "latin1");
+  if (!medPdfText.startsWith("%PDF") || !/^klin-remedios-\d{4}-\d{2}-\d{2}\.pdf$/.test(medPdf.suggestedFilename())) {
+    throw new Error("PDF de remédios inválido: " + medPdf.suggestedFilename());
+  }
+  for (const expected of ["Relatório de remédios", "Omeprazol", "Vitamina D", "Adesão no período", "Histórico de doses", "pela notificação", "últimos 7 dias"]) {
+    if (!medPdfText.includes(expected)) throw new Error(`PDF de remédios sem "${expected}"`);
+  }
+  if (!state.calls.includes("GET medication_logs relatorio")) throw new Error("relatório não buscou o histórico");
+  step("relatório dos remédios em PDF: período, adesão e histórico dose a dose");
+  await page.goto(`${BASE}/ajustes/`); // o bloqueio, a seguir, começa nos Ajustes
+
   // --- Bloqueio por PIN e biometria ------------------------------------------
   // Autenticador virtual de plataforma (digital/rosto) pelo DevTools.
   await cdp.send("WebAuthn.enable");

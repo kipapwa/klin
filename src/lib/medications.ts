@@ -39,6 +39,18 @@ export async function getMedication(id: string): Promise<{ medication: Medicatio
 }
 
 /** Cria (sem id) ou atualiza. O gatilho do banco recalcula fim e próxima dose. */
+/** Registros de dose de todos os remédios desde `since` (relatório em PDF). */
+export async function listLogsSince(since: Date): Promise<(MedicationLog & { medication_id: string })[]> {
+  const { data, error } = await getSupabase()
+    .from("medication_logs")
+    .select("id, medication_id, scheduled_for, status, taken_at, source")
+    .gte("scheduled_for", since.toISOString())
+    .order("scheduled_for", { ascending: false })
+    .limit(5000);
+  if (error) throw new UserFacingError("Não foi possível carregar o histórico de doses.");
+  return (data ?? []) as (MedicationLog & { medication_id: string })[];
+}
+
 export async function saveMedication(input: MedicationInput, id?: string, recordId?: string | null): Promise<string> {
   const supabase = getSupabase();
   if (id) {

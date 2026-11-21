@@ -66,6 +66,6 @@ Estas regras valem para todo código do repositório e têm prioridade sobre con
   - É apagada ao sair da conta, no "Esqueci o PIN" e após erros demais no PIN.
   - Não aumenta a exposição: a sessão de login fica no mesmo armazenamento e já dá acesso a tudo.
   - Buscas com termo digitado não são guardadas, e nada clínico vai no nome das chaves.
-- **Relatório PDF:** gerado no aparelho (jsPDF, carregado sob demanda); os dados não passam por nenhum serviço externo. A transcrição bruta fica fora do relatório, e o nome do arquivo não leva dado clínico.
+- **Relatórios PDF** (registros e remédios): gerados no aparelho (jsPDF, carregado sob demanda); os dados não passam por nenhum serviço externo. A transcrição bruta fica fora do relatório, e o nome do arquivo não leva dado clínico.
 - **Ditado** (registro escrito): usa o reconhecimento de voz do próprio navegador. O áudio do ditado vai para o serviço de voz do sistema (Google no Android/Chrome, Apple no iPhone), não para o Supabase nem para as IAs do app. Isso está escrito ao lado do botão, e o ditado só começa quando a pessoa toca em "Ditar". O texto reconhecido fica só no campo até a pessoa salvar.
 - **Nada clínico na URL:** o termo de busca da linha do tempo e os nomes de remédios não vão para a URL (o GitHub Pages recebe a query string).
