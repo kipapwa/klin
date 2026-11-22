@@ -223,7 +223,7 @@ export interface RecordDetails {
   recordedAt: string; // ISO
 }
 
-const CATEGORIES: RecordCategory[] = ["exam", "symptom", "prescription", "follow_up", "procedure"];
+const CATEGORIES: RecordCategory[] = ["exam", "symptom", "blood_pressure", "prescription", "follow_up", "procedure"];
 const SEVERITIES: RecordSeverity[] = ["routine", "attention", "critical"];
 
 /** Muda categoria, gravidade e dia/horário de um registro (RLS: só os próprios). */

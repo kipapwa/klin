@@ -148,6 +148,13 @@ test("horários fixos: próxima dose no fuso do usuário, avanço e validação"
   assert.equal(acabou.next_dose_at, null);
 });
 
+test("categoria Pressão (blood_pressure) aceita; categoria inexistente recusada", async () => {
+  const { rows } = await as(A, `insert into public.medical_records (title, category, observations)
+    values ('Pressão de manhã', 'blood_pressure', 'PA 130/85 mmHg, pulso 72 bpm') returning category`);
+  assert.equal(rows[0].category, "blood_pressure");
+  await assert.rejects(as(A, "insert into public.medical_records (title, category) values ('x', 'pressao')"), "enum recusa valor desconhecido");
+});
+
 test("storage: bucket privado e pasta por usuário", async () => {
   assert.equal((await db.query("select public from storage.buckets where id = 'audio'")).rows[0].public, false);
   assert.equal((await as(A, `insert into storage.objects (bucket_id, name) values ('audio', '${A}/x.webm') returning id`)).rows.length, 1);

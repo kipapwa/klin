@@ -7,7 +7,7 @@
  * Módulo puro (sem Deno, sem rede): roda nas Edge Functions e nos testes em Node.
  */
 
-export const CATEGORIES = ["exam", "symptom", "prescription", "follow_up", "procedure"] as const;
+export const CATEGORIES = ["exam", "symptom", "blood_pressure", "prescription", "follow_up", "procedure"] as const;
 export const SEVERITIES = ["routine", "attention", "critical"] as const;
 
 export type Category = (typeof CATEGORIES)[number];
@@ -102,8 +102,9 @@ Regras:
 - Use apenas o que foi dito. Não invente dados, diagnósticos, doses nem datas. Campo sem informação: texto vazio "" (ou null onde permitido; lista vazia [] para listas).
 - Escreva em português do Brasil, linguagem clínica clara e objetiva.
 - chief_complaint: queixa principal. history: histórico/evolução. observations: achados, exames e observações. plan: conduta/orientações.
-- category: uma de exam (exames), symptom (sintomas), prescription (receitas), follow_up (retornos), procedure (procedimentos) — a que melhor representa o registro.
-- severity: "critical" quando houver sinal de alerta ou condição potencialmente grave (ex.: dor torácica, falta de ar intensa, sinais de AVC, sangramento importante, febre alta persistente em criança, ideação suicida, reação alérgica grave); "attention" para algo que merece acompanhamento próximo; senão "routine". Liste em alert_signs os sinais que justificaram "critical" ou "attention".
+- category: uma de exam (exames), symptom (sintomas), blood_pressure (medição de pressão arterial), prescription (receitas), follow_up (retornos), procedure (procedimentos) — a que melhor representa o registro. Use blood_pressure quando o registro for principalmente uma medição de pressão (ex.: "12 por 8", "140 x 90", "pressão 13/9").
+- Medição de pressão: escreva em observations os valores no formato "PA 120/80 mmHg" (e "pulso 72 bpm", horário, braço e posição, se ditos). "12 por 8" = 120/80 mmHg; "14 por 9" = 140/90 mmHg.
+- severity: "critical" quando houver sinal de alerta ou condição potencialmente grave (ex.: pressão 180/120 mmHg ou mais, ou pressão alta com dor no peito, falta de ar, confusão ou fraqueza de um lado do corpo; dor torácica, falta de ar intensa, sinais de AVC, sangramento importante, febre alta persistente em criança, ideação suicida, reação alérgica grave); "attention" para algo que merece acompanhamento próximo; pressão a partir de 140/90 mmHg, ou abaixo de 90/60 mmHg com tontura ou desmaio, é no mínimo "attention"; senão "routine". Liste em alert_signs os sinais que justificaram "critical" ou "attention".
 - icd10: até 5 sugestões de códigos CID-10 compatíveis com o relato (formato "A00" ou "A00.0"), com descrição em português. São sugestões, não diagnóstico.
 - medications: cada medicamento citado com nome, dosagem (ex.: "500 mg", "1 comprimido"), interval_hours (ex.: "de 8 em 8 horas" = 8; "1 vez ao dia" = 24; "2 vezes ao dia" = 12), duration_days (ex.: "por 7 dias" = 7; uso contínuo ou não dito = null), start_time no formato HH:MM se um horário de início for dito (senão null) e instructions (ex.: "após as refeições").
 - follow_up_in_days: prazo de retorno dito na fala, convertido em dias ("voltar em 30 dias" = 30; "em 2 semanas" = 14; "em 3 meses" = 90). Se não houver, null.
@@ -112,7 +113,7 @@ Regras:
 
 /** Instrução extra para o Groq (modo json_object não recebe o esquema). */
 export const GROQ_JSON_INSTRUCTIONS = `Responda SOMENTE com um objeto JSON com exatamente estas chaves:
-{"title": string, "category": "exam"|"symptom"|"prescription"|"follow_up"|"procedure", "severity": "routine"|"attention"|"critical", "alert_signs": string[], "chief_complaint": string, "history": string, "observations": string, "plan": string, "icd10": [{"code": string, "description": string}], "medications": [{"name": string, "dosage": string|null, "interval_hours": number|null, "duration_days": integer|null, "start_time": "HH:MM"|null, "instructions": string|null}], "follow_up_in_days": integer|null, "transcript": string}`;
+{"title": string, "category": "exam"|"symptom"|"blood_pressure"|"prescription"|"follow_up"|"procedure", "severity": "routine"|"attention"|"critical", "alert_signs": string[], "chief_complaint": string, "history": string, "observations": string, "plan": string, "icd10": [{"code": string, "description": string}], "medications": [{"name": string, "dosage": string|null, "interval_hours": number|null, "duration_days": integer|null, "start_time": "HH:MM"|null, "instructions": string|null}], "follow_up_in_days": integer|null, "transcript": string}`;
 
 // ---------------------------------------------------------------------
 // Leitura e validação

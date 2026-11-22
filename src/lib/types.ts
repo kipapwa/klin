@@ -1,6 +1,6 @@
 /** Tipos das tabelas usadas pelo site (espelham supabase/schema.sql). */
 
-export type RecordCategory = "exam" | "symptom" | "prescription" | "follow_up" | "procedure";
+export type RecordCategory = "exam" | "symptom" | "blood_pressure" | "prescription" | "follow_up" | "procedure";
 export type RecordSeverity = "routine" | "attention" | "critical";
 export type RecordStatus = "draft" | "processing" | "ready" | "failed";
 

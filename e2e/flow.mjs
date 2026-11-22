@@ -530,14 +530,14 @@ try {
   await timeSheet.locator("button:has-text('Confirmar')").click();
   await timeSheet.waitFor({ state: "hidden" });
   await editSheet.locator("[aria-label='Horário do registro: 07:45']").waitFor();
-  await editSheet.locator("[role=radio]:has-text('Procedimentos')").click();
+  await editSheet.locator("[role=radio]:has-text('Pressão')").click();
   await editSheet.locator("[role=radio]:has-text('Alerta')").click();
   await page.screenshot({ path: `${shots}/22-editar-registro.png` });
   await editSheet.locator("button:has-text('Salvar')").click();
   await editSheet.waitFor({ state: "hidden" });
   await page.waitForSelector("#tela header >> text=10/11/2026, 07:45");
-  await page.waitForSelector("#tela header >> text=Procedimentos");
-  if (manual.category !== "procedure" || manual.severity !== "critical" || new Date(manual.recorded_at).getTime() !== new Date(2026, 10, 10, 7, 45).getTime()) {
+  await page.waitForSelector("#tela header >> text=Pressão");
+  if (manual.category !== "blood_pressure" || manual.severity !== "critical" || new Date(manual.recorded_at).getTime() !== new Date(2026, 10, 10, 7, 45).getTime()) {
     throw new Error("edição não chegou ao banco: " + JSON.stringify(manual));
   }
   if (!(await page.$("#tela header.border-red-500"))) throw new Error("registro grave deveria ficar em vermelho");

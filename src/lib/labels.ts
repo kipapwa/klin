@@ -3,6 +3,7 @@ import type { RecordCategory, RecordSeverity, RecordStatus } from "./types";
 export const CATEGORY_LABEL: Record<RecordCategory, string> = {
   exam: "Exames",
   symptom: "Sintomas",
+  blood_pressure: "Pressão",
   prescription: "Receitas",
   follow_up: "Retornos",
   procedure: "Procedimentos",
@@ -10,6 +11,7 @@ export const CATEGORY_LABEL: Record<RecordCategory, string> = {
 
 export const CATEGORY_ICON: Record<RecordCategory, string> = {
   symptom: "🤒",
+  blood_pressure: "❤️",
   exam: "🧪",
   prescription: "💊",
   follow_up: "📅",

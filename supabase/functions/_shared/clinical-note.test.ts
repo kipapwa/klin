@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseJsonObject, validateClinicalNote } from "./clinical-note.ts";
+import { GROQ_JSON_INSTRUCTIONS, parseJsonObject, SYSTEM_PROMPT, validateClinicalNote } from "./clinical-note.ts";
 
 test("parseJsonObject tolera <think> e cercas de código", () => {
   assert.deepEqual(parseJsonObject('<think>pensando {x}</think>```json\n{"title":"a"}\n```'), { title: "a" });
@@ -53,4 +53,12 @@ test("validateClinicalNote usa a queixa como título e a transcrição de reserv
   const note = validateClinicalNote({ chief_complaint: "Dor lombar" }, "texto do whisper");
   assert.equal(note.title, "Dor lombar");
   assert.equal(note.transcript, "texto do whisper");
+});
+
+test("categoria Pressão: aceita blood_pressure e o prompt explica os valores", () => {
+  const note = validateClinicalNote({ title: "Pressão", category: "blood_pressure", observations: "PA 150/95 mmHg", severity: "attention" });
+  assert.equal(note.category, "blood_pressure");
+  assert.ok(SYSTEM_PROMPT.includes("blood_pressure (medição de pressão arterial)"));
+  assert.ok(SYSTEM_PROMPT.includes('"12 por 8" = 120/80 mmHg'));
+  assert.match(GROQ_JSON_INSTRUCTIONS, /"blood_pressure"/);
 });

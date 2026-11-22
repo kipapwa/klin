@@ -54,6 +54,10 @@ begin
 end
 $$;
 
+-- Categoria "Pressão" (medição de pressão arterial), acrescentada depois.
+-- ADD VALUE fica fora do bloco acima: é idempotente e vale para bancos já criados.
+alter type public.record_category add value if not exists 'blood_pressure';
+
 -- ---------------------------------------------------------------------
 -- 1. Funções utilitárias
 -- ---------------------------------------------------------------------
