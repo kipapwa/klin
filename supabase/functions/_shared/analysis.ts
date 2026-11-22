@@ -1,12 +1,12 @@
 /**
- * Análise sob demanda ("Perguntar à IA") nas telas de Registros e Remédios.
+ * Análise sob demanda ("Perguntar à IA") nas telas de Registros, Remédios e Pressão.
  *
  * O app manda a pergunta + o conteúdo do relatório que a pessoa já vê na tela
  * (registros filtrados ou remédios com histórico). A IA responde em texto
  * simples. Nada é guardado. TS puro: testável no Node e no Deno.
  */
 
-export type AnalysisScope = "records" | "medications";
+export type AnalysisScope = "records" | "medications" | "pressure";
 
 export const MIN_QUESTION_CHARS = 3;
 export const MAX_QUESTION_CHARS = 500;
@@ -23,7 +23,7 @@ export interface AnalysisRequest {
 export function parseAnalysisRequest(body: unknown): AnalysisRequest | null {
   if (!body || typeof body !== "object") return null;
   const { scope, question, context } = body as Record<string, unknown>;
-  if (scope !== "records" && scope !== "medications") return null;
+  if (scope !== "records" && scope !== "medications" && scope !== "pressure") return null;
   if (typeof question !== "string" || typeof context !== "string") return null;
   const q = question.trim();
   if (q.length < MIN_QUESTION_CHARS || q.length > MAX_QUESTION_CHARS) return null;
@@ -46,6 +46,7 @@ Regras:
 const SCOPE_LABEL: Record<AnalysisScope, string> = {
   records: "Registros de saúde (notas de consultas, sintomas, exames, pressão etc.)",
   medications: "Remédios com horários, adesão e histórico de doses",
+  pressure: "Medições de pressão arterial (máxima/mínima em mmHg e batimentos), anotadas pela própria pessoa em casa",
 };
 
 export function analysisUserPrompt(req: AnalysisRequest, today: string): string {

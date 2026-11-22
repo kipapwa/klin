@@ -5,7 +5,7 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import type { ReportDoc } from "./report.ts";
 
-export type AnalysisScope = "records" | "medications";
+export type AnalysisScope = "records" | "medications" | "pressure";
 
 export const MIN_QUESTION_CHARS = 3;
 export const MAX_QUESTION_CHARS = 500;
@@ -25,6 +25,12 @@ export const SUGGESTIONS: Record<AnalysisScope, string[]> = {
     "Em que horários eu mais esqueço?",
     "Resuma meus remédios em uso",
     "O que perguntar ao médico sobre meus remédios?",
+  ],
+  pressure: [
+    "Como está minha pressão?",
+    "Em que horário ela fica mais alta?",
+    "Melhorou em relação ao mês passado?",
+    "O que levar para o médico sobre a pressão?",
   ],
 };
 

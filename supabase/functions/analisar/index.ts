@@ -1,7 +1,7 @@
 /**
  * Edge Function: analisar ("Perguntar à IA" em Registros e Remédios)
  *
- * POST { scope: "records" | "medications", question, context }
+ * POST { scope: "records" | "medications" | "pressure", question, context }
  *      (Authorization: Bearer <token do usuário>)
  *
  * `context` é o conteúdo do relatório que a pessoa vê na tela (registros

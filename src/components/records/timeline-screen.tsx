@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { listMedications } from "@/lib/medications";
 import { getProfile } from "@/lib/profile";
 import { prefetchScreens } from "@/lib/screen-cache";
+import { listReadings } from "@/lib/pressure";
 import { PendingDrafts } from "@/components/offline/pending-drafts";
 import { prepareRecordsReport } from "@/lib/export-report";
 import { ReportPreviewSheet } from "@/components/reports/report-preview";
@@ -28,7 +29,7 @@ export function TimelineScreen() {
 
   // Abas mais usadas já ficam guardadas para abrir na hora na primeira visita.
   useEffect(() => {
-    void prefetchScreens({ perfil: getProfile, remedios: listMedications });
+    void prefetchScreens({ perfil: getProfile, remedios: listMedications, pressao: listReadings });
   }, []);
 
   const onFiltersChange = useCallback((filters: RecordFilters, records: MedicalRecordSummary[]) => {

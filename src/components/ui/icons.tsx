@@ -119,3 +119,10 @@ export const PencilIcon = (p: IconProps) => (
     <path d="m15 5 4 4" />
   </Svg>
 );
+
+export const HeartPulseIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M19.5 12.6 12 20l-7.5-7.4A5 5 0 1 1 12 6a5 5 0 1 1 7.5 6.6Z" />
+    <path d="M3.5 12h4l1.5-3 3 6 1.5-3h3" />
+  </Svg>
+);

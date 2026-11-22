@@ -639,6 +639,37 @@ create table if not exists public.ai_analyses (
 create index if not exists ai_analyses_user_idx
   on public.ai_analyses (user_id, scope, created_at desc);
 
+-- Escopo "pressure" (aba Pressão). O check do create table acima ganha nome
+-- automático (<tabela>_scope_check); recriado aqui para valer em bancos antigos.
+alter table public.ai_saved_questions drop constraint if exists ai_saved_questions_scope_check;
+alter table public.ai_saved_questions add constraint ai_saved_questions_scope_check
+  check (scope in ('records', 'medications', 'pressure'));
+alter table public.ai_analyses drop constraint if exists ai_analyses_scope_check;
+alter table public.ai_analyses add constraint ai_analyses_scope_check
+  check (scope in ('records', 'medications', 'pressure'));
+
+-- ---------------------------------------------------------------------
+-- 6d. bp_readings — medições de pressão arterial (aba Pressão)
+-- Lançamento rápido: máxima/mínima (mmHg) e batimentos (bpm). Limites
+-- largos, só para barrar erro de digitação.
+-- ---------------------------------------------------------------------
+create table if not exists public.bp_readings (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  measured_at  timestamptz not null default now(),
+  systolic     smallint not null check (systolic between 50 and 300),
+  diastolic    smallint not null check (diastolic between 30 and 200),
+  pulse        smallint check (pulse between 20 and 250),
+  note         text check (char_length(note) <= 300),
+  created_at   timestamptz not null default now(),
+
+  constraint bp_readings_order check (systolic > diastolic),
+  constraint bp_readings_when check (measured_at < now() + interval '1 day')
+);
+
+create index if not exists bp_readings_user_measured_idx
+  on public.bp_readings (user_id, measured_at desc);
+
 -- ---------------------------------------------------------------------
 -- 7. Row Level Security
 -- ---------------------------------------------------------------------
@@ -649,11 +680,12 @@ alter table public.medication_logs     enable row level security;
 alter table public.push_subscriptions  enable row level security;
 alter table public.ai_saved_questions  enable row level security;
 alter table public.ai_analyses         enable row level security;
+alter table public.bp_readings         enable row level security;
 
 -- Nada para visitantes não autenticados.
 revoke all on public.profiles, public.medical_records, public.medications,
               public.medication_logs, public.push_subscriptions,
-              public.ai_saved_questions, public.ai_analyses from anon;
+              public.ai_saved_questions, public.ai_analyses, public.bp_readings from anon;
 
 -- Permissões explícitas para usuários logados. Projetos novos do Supabase podem
 -- não expor automaticamente as tabelas criadas por SQL; sem estes GRANTs o
@@ -662,12 +694,12 @@ revoke all on public.profiles, public.medical_records, public.medications,
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete
   on public.medical_records, public.medications, public.medication_logs, public.push_subscriptions,
-     public.ai_saved_questions, public.ai_analyses
+     public.ai_saved_questions, public.ai_analyses, public.bp_readings
   to authenticated;
 grant select, insert, update on public.profiles to authenticated;
 grant all on public.profiles, public.medical_records, public.medications,
              public.medication_logs, public.push_subscriptions, public.ai_usage,
-             public.ai_saved_questions, public.ai_analyses
+             public.ai_saved_questions, public.ai_analyses, public.bp_readings
   to service_role;
 
 -- profiles: o próprio usuário lê e edita (criação é pelo trigger).
@@ -693,7 +725,7 @@ declare
   t text;
 begin
   foreach t in array array['medical_records', 'medications', 'medication_logs', 'push_subscriptions',
-                         'ai_saved_questions', 'ai_analyses']
+                         'ai_saved_questions', 'ai_analyses', 'bp_readings']
   loop
     execute format('drop policy if exists %I on public.%I', t || '_select_own', t);
     execute format(

@@ -201,6 +201,31 @@ export function startSupabase(port) {
       state.calls.push("DELETE push_subscriptions");
       return send(res, 204);
     }
+    // Medições de pressão.
+    if (p === "/rest/v1/bp_readings") {
+      state.bp ??= [];
+      if (req.method === "GET") {
+        const gte = url.searchParams.get("measured_at")?.replace(/^gte\./, "");
+        const rows = state.bp
+          .filter((r) => !gte || Date.parse(r.measured_at) >= Date.parse(gte))
+          .sort((a, b) => b.measured_at.localeCompare(a.measured_at));
+        return send(res, 200, rows);
+      }
+      if (req.method === "POST") {
+        const b = JSON.parse(raw);
+        if (!(b.systolic > b.diastolic)) return send(res, 400, { code: "23514", message: "check" });
+        const row = { id: crypto.randomUUID(), pulse: null, note: null, ...b, measured_at: new Date(b.measured_at).toISOString() };
+        state.bp.push(row);
+        state.calls.push("POST bp_readings");
+        return send(res, 201, one ? row : [row]);
+      }
+      if (req.method === "DELETE") {
+        const id = url.searchParams.get("id")?.replace(/^eq\./, "");
+        state.bp = state.bp.filter((r) => r.id !== id);
+        state.calls.push("DELETE bp_readings");
+        return send(res, 204);
+      }
+    }
     // "Perguntar à IA": perguntas favoritas e histórico (filtro por scope, insert com return=representation).
     if (p === "/rest/v1/ai_saved_questions" || p === "/rest/v1/ai_analyses") {
       const table = p.endsWith("ai_analyses") ? "aiAnalyses" : "aiQuestions";

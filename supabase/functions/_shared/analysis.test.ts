@@ -6,6 +6,7 @@ test("pedido: valida escopo, pergunta e tamanho do conteúdo", () => {
   const ok = { scope: "medications", question: "  Como está minha adesão?  ", context: "Relatório de remédios..." };
   assert.deepEqual(parseAnalysisRequest(ok), { scope: "medications", question: "Como está minha adesão?", context: "Relatório de remédios..." });
   assert.equal(parseAnalysisRequest({ ...ok, scope: "tudo" }), null);
+  assert.equal(parseAnalysisRequest({ ...ok, scope: "pressure" })?.scope, "pressure");
   assert.equal(parseAnalysisRequest({ ...ok, question: "oi" }), null);
   assert.equal(parseAnalysisRequest({ ...ok, question: "x".repeat(501) }), null);
   assert.equal(parseAnalysisRequest({ ...ok, context: " " }), null);

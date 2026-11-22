@@ -278,3 +278,16 @@ test("Perguntar à IA: perguntas favoritas e histórico só do dono", async () =
     await db.exec("reset role;");
   }
 });
+
+test("pressão: medições só do dono, valores fora da faixa recusados", async () => {
+  const { rows } = await as(A, "insert into public.bp_readings (systolic, diastolic, pulse, note) values (128, 82, 70, 'manhã') returning id, measured_at");
+  assert.equal(rows.length, 1);
+  await assert.rejects(as(A, "insert into public.bp_readings (systolic, diastolic) values (80, 120)"), "máxima menor que a mínima");
+  await assert.rejects(as(A, "insert into public.bp_readings (systolic, diastolic) values (400, 80)"), "fora da faixa");
+  await assert.rejects(as(A, "insert into public.bp_readings (systolic, diastolic, pulse) values (120, 80, 5)"), "batimentos fora da faixa");
+  await assert.rejects(as(A, "insert into public.bp_readings (systolic, diastolic, measured_at) values (120, 80, now() + interval '3 days')"), "no futuro");
+  assert.equal((await as(B, "select * from public.bp_readings")).rows.length, 0, "B não vê");
+  assert.equal((await as(B, `delete from public.bp_readings where id = '${rows[0].id}' returning id`)).rows.length, 0, "B não apaga");
+  await assert.rejects(as(B, `insert into public.bp_readings (user_id, systolic, diastolic) values ('${A}', 120, 80)`));
+  await as(A, "insert into public.ai_saved_questions (scope, question) values ('pressure', 'Minha pressão melhorou?')");
+});

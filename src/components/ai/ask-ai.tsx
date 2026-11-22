@@ -63,7 +63,7 @@ export function AskAiButton({
         onClick={() => setOpen(true)}
         className="flex w-full items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-200"
       >
-        <span aria-hidden>✨</span> Perguntar à IA {scope === "records" ? "sobre seus registros" : "sobre seus remédios"}
+        <span aria-hidden>✨</span> Perguntar à IA {scope === "records" ? "sobre seus registros" : scope === "pressure" ? "sobre sua pressão" : "sobre seus remédios"}
       </button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Perguntar à IA">
         {open ? <AskAi scope={scope} prepare={prepare} scopeNote={scopeNote} controls={controls} onClose={() => setOpen(false)} /> : null}

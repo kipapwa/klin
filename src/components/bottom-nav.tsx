@@ -2,7 +2,7 @@
 
 import { GuardedLink as Link } from "@/components/ui/guarded-link";
 import { usePathname } from "next/navigation";
-import { PillIcon, SettingsIcon, TimelineIcon } from "@/components/ui/icons";
+import { HeartPulseIcon, PillIcon, SettingsIcon, TimelineIcon } from "@/components/ui/icons";
 
 const TABS = [
   {
@@ -12,6 +12,7 @@ const TABS = [
     match: (p: string) => p === "/" || p.startsWith("/registro") || p.startsWith("/gravar"),
   },
   { href: "/medicamentos/", label: "Remédios", Icon: PillIcon, match: (p: string) => p.startsWith("/medicamentos") },
+  { href: "/pressao/", label: "Pressão", Icon: HeartPulseIcon, match: (p: string) => p.startsWith("/pressao") },
   { href: "/ajustes/", label: "Ajustes", Icon: SettingsIcon, match: (p: string) => p.startsWith("/ajustes") },
 ];
 

@@ -783,6 +783,67 @@ try {
   if ((await askMed.locator("#ai-question").inputValue()) !== "") throw new Error("nova pergunta deveria começar vazia");
   await askMed.locator("[aria-label='Fechar']").click();
   step("perguntar à IA sobre os remédios: período, pergunta escrita e histórico enviado");
+
+  // --- Pressão: lançamento rápido, resumo, gráfico, apagar, PDF e IA --------
+  const daysAgo = (d) => new Date(Date.now() - d * 86_400_000).toISOString();
+  state.bp = [
+    { id: crypto.randomUUID(), measured_at: daysAgo(2), systolic: 150, diastolic: 95, pulse: 80, note: null },
+    { id: crypto.randomUUID(), measured_at: daysAgo(5), systolic: 135, diastolic: 88, pulse: null, note: "após o café" },
+  ];
+  await page.click("nav >> text=Pressão");
+  await page.locator("#tela >> text=Nova medição").waitFor();
+  await page.fill("#bp-sys", "12");
+  await page.fill("#bp-dia", "8");
+  await page.click("#tela button:has-text('Salvar medição')");
+  await page.locator("#tela [role=alert] >> text=120 e 80").waitFor();
+  await page.fill("#bp-sys", "128");
+  await page.fill("#bp-dia", "82");
+  await page.fill("#bp-pulse", "70");
+  await page.fill("#bp-note", "manhã, braço esquerdo");
+  await page.click("#tela button:has-text('Salvar medição')");
+  await page.locator("#tela [role=status] >> text=Medição 128/82 salva").waitFor();
+  const bpSaved = state.bp.find((r) => r.systolic === 128);
+  if (!bpSaved || bpSaved.pulse !== 70 || bpSaved.note !== "manhã, braço esquerdo") throw new Error("medição salva errada: " + JSON.stringify(bpSaved));
+  if ((await page.inputValue("#bp-sys")) !== "") throw new Error("campos deveriam limpar depois de salvar");
+  const avg = page.locator("#tela section[aria-label='Resumo do período']");
+  await avg.locator("text=138/88").waitFor();
+  await avg.locator("text=Pré-hipertensão").waitFor();
+  if ((await page.locator("#tela [aria-label='Medições de pressão'] > li").count()) !== 3) throw new Error("lista de medições deveria ter 3");
+  const chart = page.locator("#tela svg[role=img][aria-label*='3 medições']");
+  await chart.waitFor();
+  await chart.scrollIntoViewIfNeeded();
+  const cbox = await chart.boundingBox();
+  await page.mouse.click(cbox.x + cbox.width - 45, cbox.y + 100);
+  await page.locator("#tela figure [role=status] >> text=128/82").waitFor();
+  await page.screenshot({ path: `${shots}/34-pressao.png`, fullPage: true });
+
+  // Muito alta: aviso de procurar atendimento; depois apaga.
+  await page.fill("#bp-sys", "185");
+  await page.fill("#bp-dia", "115");
+  await page.click("#tela button:has-text('Salvar medição')");
+  await page.locator("#tela [role=status] >> text=procure atendimento agora").waitFor();
+  await page.click("#tela button[aria-label='Apagar medição 185/115']");
+  await answerConfirm("Apagar");
+  await page.locator("#tela button[aria-label='Apagar medição 185/115']").waitFor({ state: "detached" });
+  if (state.bp.some((r) => r.systolic === 185)) throw new Error("medição não foi apagada");
+  step("pressão: lançamento rápido, validação, média do período, gráfico com toque, alerta de muito alta e apagar");
+
+  await page.click("#tela button:has-text('Relatório PDF')");
+  const bpReport = page.locator("dialog[aria-label='Relatório de pressão']");
+  await bpReport.locator("text=Relatório de pressão arterial").waitFor();
+  await bpReport.locator("text=150/95 mmHg · 80 bpm · Alta (estágio 1)").waitFor();
+  await bpReport.locator("[aria-label='Fechar']").click();
+  await page.click("#tela button:has-text('Perguntar à IA sobre sua pressão')");
+  const askBp = page.locator("dialog[aria-label='Perguntar à IA']");
+  await askBp.locator("[aria-label='Sugestões'] >> text=Como está minha pressão?").click();
+  await askBp.locator("button:has-text('Analisar')").click();
+  await askBp.locator("[aria-label='Resposta da IA']").waitFor();
+  const askP = state.analyses.at(-1);
+  if (askP.scope !== "pressure" || !askP.context.includes("150/95") || !askP.context.includes("128/82")) {
+    throw new Error("análise da pressão enviou dados errados: " + askP.context.slice(0, 300));
+  }
+  await askBp.locator("[aria-label='Fechar']").click();
+  step("pressão: relatório na tela e pergunta à IA com as medições do período");
   await page.goto(`${BASE}/ajustes/`); // o bloqueio, a seguir, começa nos Ajustes
 
   // --- Bloqueio por PIN e biometria ------------------------------------------
@@ -866,11 +927,13 @@ try {
   await page.waitForSelector("h1:has-text('Vitamina D')", fast);
   await page.click("text=Editar horários");
   await page.waitForFunction(() => document.querySelector("#name")?.value === "Vitamina D", null, fast);
+  await page.click("nav >> text=Pressão");
+  await page.waitForSelector("#tela [aria-label='Medições de pressão'] >> text=150/95", fast);
   await page.click("nav >> text=Ajustes");
   await page.locator("#tela nav[aria-label='Notificações'] >> text=Com o nome").waitFor(fast);
   await page.waitForSelector("header button[aria-label^='Lembretes']", fast);
   await page.unroute("**/rest/v1/**");
-  step(`telas instantâneas: 6 telas abriram com o banco atrasado 4 s (total ${Date.now() - t0} ms)`);
+  step(`telas instantâneas: 7 telas abriram com o banco atrasado 4 s (total ${Date.now() - t0} ms)`);
 
   await page.click("text=Sair da conta");
   await page.locator("dialog[role=alertdialog][open] >> text=Sair da conta?").waitFor();

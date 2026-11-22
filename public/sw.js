@@ -35,8 +35,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // montadas no aparelho). Pedidos ao Supabase (outra origem) nunca passam
 // por aqui. Trocar CACHE_VERSION apaga os caches antigos.
 // ---------------------------------------------------------------------
-const CACHE_VERSION = "klin-v5";
-const APP_PAGES = ["", "gravar/", "medicamentos/", "medicamentos/detalhe/", "medicamentos/editar/", "registro/", "ajustes/", "entrar/"];
+const CACHE_VERSION = "klin-v6";
+const APP_PAGES = ["", "gravar/", "medicamentos/", "medicamentos/detalhe/", "medicamentos/editar/", "pressao/", "registro/", "ajustes/", "entrar/"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

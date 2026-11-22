@@ -1,3 +1,5 @@
+import { buildPressureReport, pressureReportFilename } from "./blood-pressure";
+import { listReadingsSince } from "./pressure";
 import { listLogsSince, listMedications } from "./medications";
 import { buildMedicationReport, medicationReportFilename } from "./medication-report";
 import { deviceTimeZone } from "./profile";
@@ -59,4 +61,23 @@ export async function prepareMedicationReport(days: number, onlyId?: string): Pr
 /** Desenha o PDF do relatório já montado e baixa. */
 export async function downloadReport(report: PreparedReport): Promise<void> {
   downloadBlob(await renderReportPdf(report.doc), report.filename);
+}
+
+/** Relatório de pressão dos últimos `days` dias. */
+export async function preparePressureReport(days: number): Promise<PreparedReport> {
+  const now = new Date();
+  const [readings, session] = await Promise.all([
+    listReadingsSince(new Date(now.getTime() - days * 86_400_000)),
+    getSupabase().auth.getSession(),
+  ]);
+  return {
+    doc: buildPressureReport({
+      readings,
+      days,
+      email: session.data.session?.user.email ?? null,
+      generatedAt: now,
+      timeZone: deviceTimeZone(),
+    }),
+    filename: pressureReportFilename(now),
+  };
 }

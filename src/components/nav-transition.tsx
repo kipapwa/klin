@@ -24,7 +24,7 @@ const PENDING_MAX_MS = 2000; // toque que não virou navegação (ex.: confirma�
 /** Profundidade de cada tela: maior = mais "dentro". Abas = 0. */
 function depthOf(path: string): number | null {
   const p = path.endsWith("/") ? path : `${path}/`;
-  if (p === "/" || p === "/medicamentos/" || p === "/ajustes/") return 0;
+  if (p === "/" || p === "/medicamentos/" || p === "/pressao/" || p === "/ajustes/") return 0;
   if (p === "/registro/" || p === "/medicamentos/detalhe/" || p === "/gravar/") return 1;
   if (p === "/medicamentos/editar/") return 2;
   return null; // ex.: /entrar/: não anima
