@@ -334,8 +334,82 @@ export async function structureText(
   });
 }
 
-async function runChain(cfg: AiConfig, log: Logger, calls: Record<Provider, () => Promise<AiResult>>): Promise<AiResult> {
-  const chain: Array<[Provider, () => Promise<AiResult>]> = [];
+// ---------------------------------------------------------------------
+// Texto livre ("Perguntar à IA"): mesma cadeia Gemini -> Groq, sem JSON.
+// ---------------------------------------------------------------------
+export interface TextAnswer {
+  text: string;
+  provider: Provider;
+  model: string;
+}
+
+export async function answerWithGemini(system: string, user: string, cfg: AiConfig): Promise<TextAnswer> {
+  if (!cfg.geminiApiKey) throw new AiError("gemini", "sem chave");
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.geminiModel)}:generateContent`;
+  const data = await postJson("gemini", url, {
+    method: "POST",
+    headers: { "x-goog-api-key": cfg.geminiApiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig: {
+        maxOutputTokens: 4096,
+        ...(supportsThinkingLevel(cfg.geminiModel) ? { thinkingConfig: { thinkingLevel: "LOW" } } : {}),
+      },
+    }),
+  }, cfg.timeoutMs);
+  const candidate = (data.candidates as Array<Record<string, unknown>> | undefined)?.[0];
+  if (!candidate) throw new AiError("gemini", "sem resposta (bloqueada ou vazia)");
+  if (candidate.finishReason && candidate.finishReason !== "STOP" && candidate.finishReason !== "MAX_TOKENS") {
+    throw new AiError("gemini", `finalizou com ${String(candidate.finishReason)}`);
+  }
+  const parts = ((candidate.content as Record<string, unknown> | undefined)?.parts ?? []) as Array<{ text?: string; thought?: boolean }>;
+  const text = parts.filter((p) => !p.thought && typeof p.text === "string").map((p) => p.text).join("").trim();
+  if (!text) throw new AiError("gemini", "resposta vazia");
+  return { text, provider: "gemini", model: cfg.geminiModel };
+}
+
+export async function answerWithGroq(system: string, user: string, cfg: AiConfig): Promise<TextAnswer> {
+  if (!cfg.groqApiKey) throw new AiError("groq", "sem chave");
+  const chat = await postJson("groq", "https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + cfg.groqApiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: cfg.groqChatModel,
+      temperature: 0.3,
+      max_completion_tokens: 4096,
+      ...(cfg.groqChatModel.startsWith("openai/gpt-oss") ? { reasoning_effort: "low" } : {}),
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  }, cfg.timeoutMs);
+  const choices = chat.choices as Array<{ message?: { content?: string } }> | undefined;
+  const text = (choices?.[0]?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  if (!text) throw new AiError("groq", "resposta vazia");
+  return { text, provider: "groq", model: cfg.groqChatModel };
+}
+
+type AnswerStep = (system: string, user: string, cfg: AiConfig) => Promise<TextAnswer>;
+
+/** Pergunta livre: Gemini primeiro, Groq de reserva. */
+export async function answerText(
+  system: string,
+  user: string,
+  cfg: AiConfig,
+  log: Logger,
+  steps: Partial<Record<Provider, AnswerStep>> = {},
+): Promise<TextAnswer> {
+  return runChain(cfg, log, {
+    gemini: () => (steps.gemini ?? answerWithGemini)(system, user, cfg),
+    groq: () => (steps.groq ?? answerWithGroq)(system, user, cfg),
+  });
+}
+
+async function runChain<T>(cfg: AiConfig, log: Logger, calls: Record<Provider, () => Promise<T>>): Promise<T> {
+  const chain: Array<[Provider, () => Promise<T>]> = [];
   if (cfg.geminiApiKey) chain.push(["gemini", calls.gemini]);
   if (cfg.groqApiKey) chain.push(["groq", calls.groq]);
   if (chain.length === 0) throw new AllProvidersFailed([], true);

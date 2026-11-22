@@ -7,6 +7,7 @@ import { prefetchScreens } from "@/lib/screen-cache";
 import { PendingDrafts } from "@/components/offline/pending-drafts";
 import { prepareRecordsReport } from "@/lib/export-report";
 import { ReportPreviewSheet } from "@/components/reports/report-preview";
+import { AskAiButton } from "@/components/ai/ask-ai";
 import { CATEGORY_LABEL, SEVERITY_LABEL } from "@/lib/labels";
 import type { RecordFilters } from "@/lib/records";
 import type { MedicalRecordSummary } from "@/lib/types";
@@ -53,6 +54,18 @@ export function TimelineScreen() {
         >
           Relatório PDF
         </button>
+      </div>
+      <div className="mb-4">
+        <AskAiButton
+          scope="records"
+          disabled={!current || current.records.length === 0}
+          prepare={() => prepareRecordsReport(current?.records.map((r) => r.id) ?? [], current ? describe(current.filters) : null)}
+          scopeNote={
+            current
+              ? `A IA vai analisar ${current.records.length === 1 ? "o registro" : `os ${current.records.length} registros`} da lista${describe(current.filters) ? ` (filtro: ${describe(current.filters)})` : ""}.`
+              : ""
+          }
+        />
       </div>
       <ReportPreviewSheet
         open={preview !== null}

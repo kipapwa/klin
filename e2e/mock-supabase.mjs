@@ -19,7 +19,7 @@ function advance(log) {
 }
 
 export const state = {
-  uploads: {}, records: [], meds: [], logs: [], calls: [], subs: [],
+  uploads: {}, records: [], meds: [], logs: [], calls: [], subs: [], analyses: [],
   profile: { id: "11111111-1111-4111-8111-111111111111", timezone: "America/Sao_Paulo", notification_privacy: "discreet" },
 };
 const H = 3_600_000;
@@ -200,6 +200,14 @@ export function startSupabase(port) {
       state.subs = state.subs.filter((s) => s.endpoint !== endpoint);
       state.calls.push("DELETE push_subscriptions");
       return send(res, 204);
+    }
+    if (p === "/functions/v1/analisar" && req.method === "POST") {
+      const b = JSON.parse(raw);
+      state.analyses.push(b);
+      return send(res, 200, {
+        answer: ["Resumo de teste:", "- Você registrou as doses em dia.", "- Converse com seu médico na próxima consulta."].join("\n"),
+        provider: "gemini",
+      });
     }
     if (p === "/functions/v1/testar-notificacao") {
       return state.subs.length

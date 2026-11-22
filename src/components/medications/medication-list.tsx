@@ -6,6 +6,9 @@ import { useEffect, useState } from "react";
 import { useScreen } from "@/hooks/use-screen";
 import { useDoseMarked } from "@/hooks/use-dose-marked";
 import { MedicationReportButton } from "./medication-report-button";
+import { AskAiButton } from "@/components/ai/ask-ai";
+import { prepareMedicationReport } from "@/lib/export-report";
+import { REPORT_PERIODS } from "@/lib/medication-report";
 import { Spinner } from "@/components/ui/spinner";
 import { useNow } from "@/hooks/use-now";
 import { dueSlot, isPendingSlot } from "@/lib/doses";
@@ -29,6 +32,7 @@ export function MedicationList() {
   const params = useSearchParams();
   // Tela instantânea: os remédios guardados aparecem na hora (o sininho usa o mesmo guardado).
   const screen = useScreen("remedios", listMedications);
+  const [aiDays, setAiDays] = useState<number>(30);
   useDoseMarked(() => void screen.refresh());
   const { refresh } = screen;
   const [busy, setBusy] = useState(false);
@@ -91,6 +95,29 @@ export function MedicationList() {
         <h1 className="flex-1 text-2xl font-semibold tracking-tight">Seus remédios</h1>
         {state.meds.length > 0 ? <MedicationReportButton compact /> : null}
       </div>
+      {state.meds.length > 0 ? (
+        <AskAiButton
+          scope="medications"
+          prepare={() => prepareMedicationReport(aiDays)}
+          scopeNote={`A IA vai analisar seus remédios e o histórico de doses dos últimos ${aiDays} dias.`}
+          controls={
+            <div role="radiogroup" aria-label="Período da análise" className="flex gap-2">
+              {REPORT_PERIODS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  role="radio"
+                  aria-checked={aiDays === d}
+                  onClick={() => setAiDays(d)}
+                  className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium ${aiDays === d ? "bg-teal-700 text-white" : "border border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"}`}
+                >
+                  {d} dias
+                </button>
+              ))}
+            </div>
+          }
+        />
+      ) : null}
       {fromNotification ? (
         <div role="dialog" aria-label="Confirmar dose" className="rounded-2xl border-2 border-teal-600 bg-teal-50 p-4 dark:bg-teal-950">
           {notificationSlot ? (

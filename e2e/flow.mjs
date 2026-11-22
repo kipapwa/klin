@@ -423,6 +423,23 @@ try {
   await recSheet.locator("button:has-text('Baixar PDF')").click();
   const pdfFile = await pdfDownload;
   await recSheet.waitFor({ state: "hidden" });
+
+  // Perguntar à IA sobre os registros da lista (mesmo conteúdo do relatório).
+  await page.click("#tela button:has-text('Perguntar à IA sobre seus registros')");
+  const askSheet = page.locator("dialog[aria-label='Perguntar à IA']");
+  await askSheet.locator("text=A IA vai analisar").waitFor();
+  await askSheet.locator("[aria-label='Sugestões'] >> text=Resuma meus registros").click();
+  if ((await askSheet.locator("#ai-question").inputValue()) !== "Resuma meus registros") throw new Error("sugestão não preencheu o campo");
+  await askSheet.locator("button:has-text('Analisar')").click();
+  await askSheet.locator("[aria-label='Resposta da IA'] >> text=Você registrou as doses em dia").waitFor();
+  const askRec = state.analyses.at(-1);
+  if (askRec.scope !== "records" || askRec.question !== "Resuma meus registros" || !askRec.context.includes("Dor no peito ao subir escadas")) {
+    throw new Error("análise de registros enviou dados errados: " + JSON.stringify({ ...askRec, context: askRec.context.slice(0, 200) }));
+  }
+  await page.screenshot({ path: `${shots}/26-perguntar-ia.png` });
+  await askSheet.locator("button:has-text('Fechar')").click();
+  await askSheet.waitFor({ state: "hidden" });
+  step("perguntar à IA sobre os registros: sugestão, resposta e conteúdo do relatório enviado");
   const pdfText = (await import("node:fs")).readFileSync(await pdfFile.path(), "latin1");
   if (!pdfText.startsWith("%PDF") || !/klin-relatorio-\d{4}-\d{2}-\d{2}\.pdf/.test(pdfFile.suggestedFilename())) {
     throw new Error("PDF inválido: " + pdfFile.suggestedFilename());
@@ -716,6 +733,22 @@ try {
   }
   if (!state.calls.includes("GET medication_logs relatorio")) throw new Error("relatório não buscou o histórico");
   step("relatório dos remédios em PDF: período, adesão e histórico dose a dose");
+
+  // Perguntar à IA sobre os remédios, com período e pergunta escrita.
+  await page.click("#tela button:has-text('Perguntar à IA sobre seus remédios')");
+  const askMed = page.locator("dialog[aria-label='Perguntar à IA']");
+  await askMed.locator("[aria-label='Período da análise'] >> text=7 dias").click();
+  await askMed.locator("#ai-question").fill("Como está minha adesão ao omeprazol?");
+  await askMed.locator("button:has-text('Analisar')").click();
+  await askMed.locator("[aria-label='Resposta da IA']").waitFor();
+  const askM = state.analyses.at(-1);
+  if (askM.scope !== "medications" || !askM.context.includes("Omeprazol") || !askM.context.includes("últimos 7 dias") || !askM.context.includes("Histórico de doses")) {
+    throw new Error("análise de remédios enviou dados errados: " + askM.context.slice(0, 300));
+  }
+  await askMed.locator("button:has-text('Perguntar outra coisa')").click();
+  if ((await askMed.locator("#ai-question").inputValue()) !== "") throw new Error("nova pergunta deveria começar vazia");
+  await askMed.locator("[aria-label='Fechar']").click();
+  step("perguntar à IA sobre os remédios: período, pergunta escrita e histórico enviado");
   await page.goto(`${BASE}/ajustes/`); // o bloqueio, a seguir, começa nos Ajustes
 
   // --- Bloqueio por PIN e biometria ------------------------------------------

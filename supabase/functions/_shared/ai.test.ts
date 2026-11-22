@@ -4,6 +4,7 @@ import {
   type AiConfig,
   AiError,
   AllProvidersFailed,
+  answerText,
   GEMINI_INLINE_MAX_BYTES,
   MAX_TEXT_CHARS,
   safeDetail,
@@ -215,4 +216,25 @@ test("gpt-oss no Groq recebe reasoning_effort; outros modelos não", async () =>
   const llama = mockFetch([json({ choices: [{ message: { content: noteJson } }] })]);
   await structureTextWithGroq("Febre.", cfg);
   assert.equal(JSON.parse(String(llama[0].init.body)).reasoning_effort, undefined);
+});
+
+// --- Perguntar à IA (texto livre) -----------------------------------------------
+test("pergunta livre: Gemini sem JSON (sem esquema) e Groq de reserva", async () => {
+  const calls = mockFetch([
+    json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: "rascunho", thought: true }, { text: "Sua pressão subiu na última semana." }] } }] }),
+  ]);
+  const a = await answerText("sistema", "pedido", cfg, silent);
+  assert.deepEqual([a.provider, a.text], ["gemini", "Sua pressão subiu na última semana."]);
+  const body = JSON.parse(String(calls[0].init.body));
+  assert.equal(body.generationConfig.responseMimeType, undefined, "resposta em texto, não JSON");
+  assert.equal(body.systemInstruction.parts[0].text, "sistema");
+
+  mockFetch([json({ error: { code: 503, status: "UNAVAILABLE", message: "overloaded" } }, 503), json({ choices: [{ message: { content: "<think>x</think>Resposta do Groq." } }] })]);
+  const b = await answerText("sistema", "pedido", cfg, silent);
+  assert.deepEqual([b.provider, b.text], ["groq", "Resposta do Groq."]);
+});
+
+test("pergunta livre: resposta vazia passa a vez", async () => {
+  mockFetch([json({ candidates: [{ finishReason: "STOP", content: { parts: [] } }] }), json({ choices: [{ message: { content: "" } }] })]);
+  await assert.rejects(answerText("s", "p", cfg, silent), AllProvidersFailed);
 });

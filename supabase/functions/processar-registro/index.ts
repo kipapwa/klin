@@ -17,7 +17,8 @@
  * GEMINI_MODEL, GROQ_TRANSCRIPTION_MODEL, GROQ_CHAT_MODEL, AI_TIMEOUT_MS, AI_DAILY_LIMIT.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
-import { type AiConfig, AllProvidersFailed, baseMime, MAX_TEXT_CHARS, structureAudio, structureText } from "../_shared/ai.ts";
+import { AllProvidersFailed, baseMime, MAX_TEXT_CHARS, structureAudio, structureText } from "../_shared/ai.ts";
+import { aiConfigFromEnv } from "../_shared/ai-env.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { publishableKey } from "../_shared/supabase-keys.ts";
 import { addDays, localDate, medicationStart, safeTimeZone } from "../_shared/schedule.ts";
@@ -31,18 +32,7 @@ const MIN_TEXT_CHARS = 10;
 
 const env = (name: string) => Deno.env.get(name) || undefined;
 
-function aiConfig(): AiConfig {
-  const timeout = Number(env("AI_TIMEOUT_MS"));
-  return {
-    geminiApiKey: env("GEMINI_API_KEY"),
-    geminiModel: env("GEMINI_MODEL") ?? "gemini-3.8-flash",
-    groqApiKey: env("GROQ_API_KEY"),
-    groqTranscriptionModel: env("GROQ_TRANSCRIPTION_MODEL") ?? "whisper-large-v3",
-    // llama-3.3-70b-versatile passou a ser plano Enterprise no Groq; gpt-oss-120b é de produção.
-    groqChatModel: env("GROQ_CHAT_MODEL") ?? "openai/gpt-oss-120b",
-    timeoutMs: Number.isFinite(timeout) && timeout >= 5000 ? timeout : 45000,
-  };
-}
+const aiConfig = () => aiConfigFromEnv(env);
 
 const log = {
   error: (msg: string) => console.error(`[processar-registro] ${msg}`),
