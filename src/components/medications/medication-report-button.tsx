@@ -10,7 +10,16 @@ import { REPORT_PERIODS } from "@/lib/medication-report";
  * (agenda, adesão e histórico dose a dose) e baixa o PDF. Gerado no aparelho.
  * Com `medicationId`, só aquele remédio.
  */
-export function MedicationReportButton({ medicationId, className = "" }: { medicationId?: string; className?: string }) {
+export function MedicationReportButton({
+  medicationId,
+  compact = false,
+  className = "",
+}: {
+  medicationId?: string;
+  /** Botão pequeno ao lado do título (igual ao "Relatório PDF" da Linha do tempo). */
+  compact?: boolean;
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [days, setDays] = useState<number>(30);
 
@@ -22,9 +31,13 @@ export function MedicationReportButton({ medicationId, className = "" }: { medic
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900 ${className}`}
+        className={
+          compact
+            ? `shrink-0 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium shadow-sm dark:border-zinc-700 dark:bg-zinc-900 ${className}`
+            : `rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900 ${className}`
+        }
       >
-        📄 {medicationId ? "Relatório deste remédio" : "Relatório dos remédios"}
+        {compact ? "Relatório PDF" : `📄 ${medicationId ? "Relatório deste remédio" : "Relatório dos remédios"}`}
       </button>
       <ReportPreviewSheet
         open={open}

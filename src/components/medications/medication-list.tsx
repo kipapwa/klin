@@ -87,7 +87,10 @@ export function MedicationList() {
 
   return (
     <div className="flex flex-col gap-3">
-      <h1 className="text-2xl font-semibold tracking-tight">Seus remédios</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="flex-1 text-2xl font-semibold tracking-tight">Seus remédios</h1>
+        {state.meds.length > 0 ? <MedicationReportButton compact /> : null}
+      </div>
       {fromNotification ? (
         <div role="dialog" aria-label="Confirmar dose" className="rounded-2xl border-2 border-teal-600 bg-teal-50 p-4 dark:bg-teal-950">
           {notificationSlot ? (
@@ -182,8 +185,6 @@ export function MedicationList() {
           </ul>
         </details>
       ) : null}
-
-      {state.meds.length > 0 ? <MedicationReportButton className="mt-4" /> : null}
     </div>
   );
 }

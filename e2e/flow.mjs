@@ -688,7 +688,11 @@ try {
 
   // Relatório dos remédios em PDF: agenda, adesão e histórico (com a dose marcada pela notificação).
   await page.goto(`${BASE}/medicamentos/`);
-  await page.click("#tela button:has-text('Relatório dos remédios')");
+  // Botão no topo, ao lado do título (antes ficava escondido no fim da lista).
+  const topReport = page.locator("#tela button:has-text('Relatório PDF')");
+  const topBox = await topReport.boundingBox();
+  if (!topBox || topBox.y > 300) throw new Error("botão do relatório deveria ficar no topo: " + JSON.stringify(topBox));
+  await topReport.click();
   const medSheet = page.locator("dialog[aria-label='Relatório dos remédios']");
   await medSheet.locator("article[aria-label='Prévia do relatório'] >> text=últimos 30 dias").waitFor();
   await medSheet.locator("[role=radio]:has-text('7 dias')").click();
