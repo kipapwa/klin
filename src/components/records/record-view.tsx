@@ -9,7 +9,8 @@ import { forgetScreen, readScreen, writeScreen } from "@/lib/screen-cache";
 import { PencilIcon } from "@/components/ui/icons";
 import { RecordEditSheet } from "./record-edit-sheet";
 import { Spinner } from "@/components/ui/spinner";
-import { exportReport } from "@/lib/export-report";
+import { prepareRecordsReport } from "@/lib/export-report";
+import { ReportPreviewSheet } from "@/components/reports/report-preview";
 import { buildFollowUpIcs, downloadIcs } from "@/lib/ics";
 import { CATEGORY_LABEL, formatDate, formatDateTime, formatDuration, scheduleText, STATUS_LABEL } from "@/lib/labels";
 import { deleteRecord, getRecord, processRecord, signedAudioUrl, UserFacingError, type RecordDetails } from "@/lib/records";
@@ -82,6 +83,7 @@ export function RecordView() {
   const [busy, setBusy] = useState<null | "audio" | "ai" | "delete" | "pdf">(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const confirm = useConfirm();
 
   if (screen.loading) return <Spinner label="Carregando…" />;
@@ -295,20 +297,18 @@ export function RecordView() {
       <button
         type="button"
         disabled={busy !== null}
-        onClick={async () => {
-          setBusy("pdf");
-          setActionError(null);
-          try {
-            await exportReport([record.id], null);
-          } catch (err) {
-            setActionError(err instanceof UserFacingError ? err.message : "Não foi possível gerar o PDF.");
-          }
-          setBusy(null);
-        }}
+        onClick={() => setPreviewing(true)}
         className="rounded-xl border border-zinc-300 px-4 py-3 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"
       >
-        {busy === "pdf" ? "Gerando PDF…" : "Baixar relatório em PDF"}
+        📄 Relatório em PDF
       </button>
+      <ReportPreviewSheet
+        open={previewing}
+        onClose={() => setPreviewing(false)}
+        title="Relatório do registro"
+        loadKey={record.id}
+        load={() => prepareRecordsReport([record.id], null)}
+      />
 
       <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
         <span>{record.ai_provider && record.ai_provider !== "manual" ? `Estruturado por IA (${record.ai_provider})` : ""}</span>

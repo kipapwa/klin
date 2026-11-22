@@ -105,7 +105,7 @@ function Picker({ initial, onCancel, onConfirm }: { initial: string; onCancel: (
       </div>
 
       {/* Sempre visível, mesmo em tela pequena (a folha rola por baixo). */}
-      <div className="sticky bottom-0 -mx-5 flex gap-2 border-t border-zinc-100 bg-white px-5 pb-1 pt-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="sticky -bottom-5 -mx-5 -mb-5 flex gap-2 border-t border-zinc-100 bg-white px-5 pb-5 pt-3 dark:border-zinc-800 dark:bg-zinc-900">
         <button type="button" onClick={onCancel} className="flex-1 rounded-2xl border border-zinc-300 px-4 py-3 font-medium dark:border-zinc-700">
           Cancelar
         </button>

@@ -410,9 +410,19 @@ try {
   step("sem zoom: viewport, toque duplo, pinça barrada (1 dedo livre) e campos com 16px+");
 
   // --- Relatório PDF ---------------------------------------------------------
+  // Prévia na tela antes de baixar: mesmo conteúdo do PDF.
+  await page.click("#tela button:has-text('Relatório PDF')");
+  const recSheet = page.locator("dialog[aria-label='Relatório dos registros']");
+  const paper = recSheet.locator("article[aria-label='Prévia do relatório']");
+  await paper.waitFor();
+  for (const expected of ["Relatório clínico", "Dor no peito ao subir escadas", "R07.4"]) {
+    if (!(await paper.textContent()).includes(expected)) throw new Error(`prévia sem "${expected}"`);
+  }
+  await page.screenshot({ path: `${shots}/25-previa-relatorio.png` });
   const pdfDownload = page.waitForEvent("download");
-  await page.click("text=Relatório PDF");
+  await recSheet.locator("button:has-text('Baixar PDF')").click();
   const pdfFile = await pdfDownload;
+  await recSheet.waitFor({ state: "hidden" });
   const pdfText = (await import("node:fs")).readFileSync(await pdfFile.path(), "latin1");
   if (!pdfText.startsWith("%PDF") || !/klin-relatorio-\d{4}-\d{2}-\d{2}\.pdf/.test(pdfFile.suggestedFilename())) {
     throw new Error("PDF inválido: " + pdfFile.suggestedFilename());
@@ -678,9 +688,16 @@ try {
 
   // Relatório dos remédios em PDF: agenda, adesão e histórico (com a dose marcada pela notificação).
   await page.goto(`${BASE}/medicamentos/`);
-  await page.click("#tela button:has-text('Relatório dos remédios em PDF')");
+  await page.click("#tela button:has-text('Relatório dos remédios')");
   const medSheet = page.locator("dialog[aria-label='Relatório dos remédios']");
+  await medSheet.locator("article[aria-label='Prévia do relatório'] >> text=últimos 30 dias").waitFor();
   await medSheet.locator("[role=radio]:has-text('7 dias')").click();
+  // Trocar o período refaz a prévia.
+  const medPaper = medSheet.locator("article[aria-label='Prévia do relatório']");
+  await medPaper.locator("text=últimos 7 dias").waitFor();
+  for (const expected of ["Omeprazol", "Histórico de doses", "pela notificação"]) {
+    if (!(await medPaper.textContent()).includes(expected)) throw new Error(`prévia de remédios sem "${expected}"`);
+  }
   await page.screenshot({ path: `${shots}/24-relatorio-remedios.png` });
   const medPdfDownload = page.waitForEvent("download");
   await medSheet.locator("button:has-text('Baixar PDF')").click();
