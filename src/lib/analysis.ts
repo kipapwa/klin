@@ -65,3 +65,8 @@ export async function askAi(scope: AnalysisScope, question: string, context: str
   if (!data?.answer) throw new AnalysisError("A IA não respondeu. Tente de novo.");
   return data;
 }
+
+/** O que foi analisado, para o histórico: "A IA vai analisar os 3 registros da lista." → "os 3 registros da lista". */
+export function historyNote(scopeNote: string): string {
+  return scopeNote.trim().replace(/^A IA vai analisar\s+/i, "").replace(/\.$/, "").slice(0, 300);
+}

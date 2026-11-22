@@ -248,3 +248,33 @@ test("reserva do registro para processamento (filtro usado pela Edge Function)",
   assert.equal((await as(A, claim)).rows.length, 0, "segunda reserva simultânea é recusada");
   assert.equal((await as(B, claim)).rows.length, 0, "B não reserva registro de A");
 });
+
+test("Perguntar à IA: perguntas favoritas e histórico só do dono", async () => {
+  await as(A, "insert into public.ai_saved_questions (scope, question) values ('records', 'Como está minha pressão?')");
+  await assert.rejects(
+    as(A, "insert into public.ai_saved_questions (scope, question) values ('records', 'Como está minha pressão?')"),
+    "mesma pergunta não duplica",
+  );
+  await assert.rejects(as(A, "insert into public.ai_saved_questions (scope, question) values ('outro', 'Pergunta')"), "escopo inválido");
+  await assert.rejects(as(A, "insert into public.ai_saved_questions (scope, question) values ('records', '  a ')"), "pergunta curta demais");
+
+  const { rows } = await as(A, `insert into public.ai_analyses (scope, question, answer, provider, scope_note)
+    values ('medications', 'Como está minha adesão?', 'Você tomou 6 de 7 doses.', 'gemini', 'Últimos 7 dias') returning id`);
+  await assert.rejects(
+    as(A, `insert into public.ai_analyses (scope, question, answer) values ('records', 'Pergunta', '${"x".repeat(8001)}')`),
+    "resposta grande demais",
+  );
+
+  assert.equal((await as(B, "select * from public.ai_saved_questions")).rows.length, 0, "B não vê as perguntas de A");
+  assert.equal((await as(B, "select * from public.ai_analyses")).rows.length, 0, "B não vê o histórico de A");
+  assert.equal((await as(B, `delete from public.ai_analyses where id = '${rows[0].id}' returning id`)).rows.length, 0, "B não apaga");
+  await assert.rejects(as(B, `insert into public.ai_analyses (user_id, scope, question, answer) values ('${A}', 'records', 'Pergunta', 'x')`));
+  assert.equal((await as(A, `delete from public.ai_analyses where id = '${rows[0].id}' returning id`)).rows.length, 1, "dono apaga");
+
+  await db.exec("set role anon;");
+  try {
+    await assert.rejects(db.query("select * from public.ai_analyses"));
+  } finally {
+    await db.exec("reset role;");
+  }
+});

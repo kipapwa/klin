@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { reportToText, SUGGESTIONS } from "./analysis.ts";
+import { historyNote, reportToText, SUGGESTIONS } from "./analysis.ts";
 import type { ReportDoc } from "./report.ts";
 
 const doc: ReportDoc = {
@@ -38,4 +38,9 @@ test("texto grande é cortado no limite, com aviso", () => {
 
 test("sugestões prontas para as duas telas", () => {
   assert.ok(SUGGESTIONS.records.length >= 3 && SUGGESTIONS.medications.length >= 3);
+});
+
+test("nota do histórico tira o começo da frase e o ponto final", () => {
+  assert.equal(historyNote("A IA vai analisar os 3 registros da lista (filtro: Pressão)."), "os 3 registros da lista (filtro: Pressão)");
+  assert.equal(historyNote("Últimos 7 dias"), "Últimos 7 dias");
 });

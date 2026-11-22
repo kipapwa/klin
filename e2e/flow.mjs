@@ -436,10 +436,44 @@ try {
   if (askRec.scope !== "records" || askRec.question !== "Resuma meus registros" || !askRec.context.includes("Dor no peito ao subir escadas")) {
     throw new Error("análise de registros enviou dados errados: " + JSON.stringify({ ...askRec, context: askRec.context.slice(0, 200) }));
   }
+  await askSheet.locator("text=Guardada no histórico").waitFor();
+  const savedAnalysis = (state.aiAnalyses ?? []).at(-1);
+  if (savedAnalysis?.scope !== "records" || !savedAnalysis.answer.includes("Você registrou as doses em dia") || !savedAnalysis.scope_note) {
+    throw new Error("resposta não foi guardada no histórico: " + JSON.stringify(savedAnalysis));
+  }
   await page.screenshot({ path: `${shots}/26-perguntar-ia.png` });
+  await askSheet.locator("button:has-text('Salvar pergunta')").click();
+  await askSheet.locator("button[aria-pressed='true']:has-text('Pergunta salva')").waitFor();
+  if ((state.aiQuestions ?? []).at(-1)?.question !== "Resuma meus registros") throw new Error("pergunta não foi salva");
   await askSheet.locator("button:has-text('Fechar')").click();
   await askSheet.waitFor({ state: "hidden" });
-  step("perguntar à IA sobre os registros: sugestão, resposta e conteúdo do relatório enviado");
+  step("perguntar à IA sobre os registros: sugestão, resposta, conteúdo enviado e resposta guardada");
+
+  // Reabrindo: a pergunta salva vira atalho e a resposta está no histórico.
+  await page.click("#tela button:has-text('Perguntar à IA sobre seus registros')");
+  const mine = askSheet.locator("[aria-label='Minhas perguntas']");
+  await mine.locator("text=Resuma meus registros").click();
+  if ((await askSheet.locator("#ai-question").inputValue()) !== "Resuma meus registros") throw new Error("atalho salvo não preencheu o campo");
+  if (await askSheet.locator("[aria-label='Sugestões'] >> text=Resuma meus registros").count()) throw new Error("pergunta salva repetida nas sugestões");
+  await askSheet.locator("#ai-question").fill("Quais sintomas se repetem no meu caso?");
+  await askSheet.locator("button:has-text('Salvar pergunta')").click();
+  await mine.locator("text=Quais sintomas se repetem no meu caso?").waitFor();
+  await askSheet.locator("button:has-text('Histórico (1)')").click();
+  const historyList = askSheet.locator("[aria-label='Histórico de respostas']");
+  await historyList.locator("summary:has-text('Resuma meus registros')").click();
+  await historyList.locator("text=Você registrou as doses em dia").waitFor();
+  await page.screenshot({ path: `${shots}/26b-historico-ia.png` });
+  await historyList.locator("button:has-text('Apagar')").click();
+  await answerConfirm("Apagar");
+  await askSheet.locator("text=Nenhuma resposta guardada ainda").waitFor();
+  if ((state.aiAnalyses ?? []).length !== 0) throw new Error("resposta não foi apagada");
+  await askSheet.locator("button:has-text('Voltar')").click();
+  await askSheet.locator("[aria-label='Tirar das minhas perguntas: Resuma meus registros']").click();
+  await askSheet.locator("[aria-label='Sugestões'] >> text=Resuma meus registros").waitFor();
+  if ((state.aiQuestions ?? []).some((q) => q.question === "Resuma meus registros")) throw new Error("pergunta não saiu dos favoritos");
+  await askSheet.locator("[aria-label='Fechar']").click();
+  await askSheet.waitFor({ state: "hidden" });
+  step("perguntas salvas e histórico de respostas: salvar, reusar, reler, apagar");
   const pdfText = (await import("node:fs")).readFileSync(await pdfFile.path(), "latin1");
   if (!pdfText.startsWith("%PDF") || !/klin-relatorio-\d{4}-\d{2}-\d{2}\.pdf/.test(pdfFile.suggestedFilename())) {
     throw new Error("PDF inválido: " + pdfFile.suggestedFilename());

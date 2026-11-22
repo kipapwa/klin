@@ -607,6 +607,39 @@ revoke execute on function public.ai_take_quota(integer) from public, anon;
 grant execute on function public.ai_take_quota(integer) to authenticated;
 
 -- ---------------------------------------------------------------------
+-- 6c. "Perguntar à IA": perguntas favoritas e histórico de análises
+-- Do próprio usuário (RLS na seção 7). As respostas contêm dados de saúde:
+-- mesma proteção dos registros. Nada aqui vai para logs.
+-- ---------------------------------------------------------------------
+create table if not exists public.ai_saved_questions (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  scope       text not null check (scope in ('records', 'medications')),
+  question    text not null check (char_length(btrim(question)) between 3 and 500),
+  created_at  timestamptz not null default now(),
+
+  constraint ai_saved_questions_unique unique (user_id, scope, question)
+);
+
+create index if not exists ai_saved_questions_user_idx
+  on public.ai_saved_questions (user_id, scope, created_at);
+
+create table if not exists public.ai_analyses (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  scope       text not null check (scope in ('records', 'medications')),
+  question    text not null check (char_length(btrim(question)) between 3 and 500),
+  answer      text not null check (char_length(answer) between 1 and 8000),
+  provider    text check (char_length(provider) <= 40),
+  -- O que foi analisado (ex.: "12 registros · Categoria: Pressão"), sem os dados em si.
+  scope_note  text check (char_length(scope_note) <= 300),
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists ai_analyses_user_idx
+  on public.ai_analyses (user_id, scope, created_at desc);
+
+-- ---------------------------------------------------------------------
 -- 7. Row Level Security
 -- ---------------------------------------------------------------------
 alter table public.profiles            enable row level security;
@@ -614,10 +647,13 @@ alter table public.medical_records     enable row level security;
 alter table public.medications         enable row level security;
 alter table public.medication_logs     enable row level security;
 alter table public.push_subscriptions  enable row level security;
+alter table public.ai_saved_questions  enable row level security;
+alter table public.ai_analyses         enable row level security;
 
 -- Nada para visitantes não autenticados.
 revoke all on public.profiles, public.medical_records, public.medications,
-              public.medication_logs, public.push_subscriptions from anon;
+              public.medication_logs, public.push_subscriptions,
+              public.ai_saved_questions, public.ai_analyses from anon;
 
 -- Permissões explícitas para usuários logados. Projetos novos do Supabase podem
 -- não expor automaticamente as tabelas criadas por SQL; sem estes GRANTs o
@@ -625,11 +661,13 @@ revoke all on public.profiles, public.medical_records, public.medications,
 -- O RLS abaixo continua limitando cada usuário às próprias linhas.
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete
-  on public.medical_records, public.medications, public.medication_logs, public.push_subscriptions
+  on public.medical_records, public.medications, public.medication_logs, public.push_subscriptions,
+     public.ai_saved_questions, public.ai_analyses
   to authenticated;
 grant select, insert, update on public.profiles to authenticated;
 grant all on public.profiles, public.medical_records, public.medications,
-             public.medication_logs, public.push_subscriptions, public.ai_usage
+             public.medication_logs, public.push_subscriptions, public.ai_usage,
+             public.ai_saved_questions, public.ai_analyses
   to service_role;
 
 -- profiles: o próprio usuário lê e edita (criação é pelo trigger).
@@ -654,7 +692,8 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['medical_records', 'medications', 'medication_logs', 'push_subscriptions']
+  foreach t in array array['medical_records', 'medications', 'medication_logs', 'push_subscriptions',
+                         'ai_saved_questions', 'ai_analyses']
   loop
     execute format('drop policy if exists %I on public.%I', t || '_select_own', t);
     execute format(

@@ -201,6 +201,33 @@ export function startSupabase(port) {
       state.calls.push("DELETE push_subscriptions");
       return send(res, 204);
     }
+    // "Perguntar à IA": perguntas favoritas e histórico (filtro por scope, insert com return=representation).
+    if (p === "/rest/v1/ai_saved_questions" || p === "/rest/v1/ai_analyses") {
+      const table = p.endsWith("ai_analyses") ? "aiAnalyses" : "aiQuestions";
+      const eq = (k) => url.searchParams.get(k)?.replace(/^eq\./, "");
+      state[table] ??= [];
+      if (req.method === "GET") {
+        let rows = state[table].filter((r) => !eq("scope") || r.scope === eq("scope"));
+        if (eq("question")) rows = rows.filter((r) => r.question === eq("question"));
+        if (table === "aiAnalyses") rows = [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at));
+        return one ? (rows[0] ? send(res, 200, rows[0]) : send(res, 200, null)) : send(res, 200, rows);
+      }
+      if (req.method === "POST") {
+        const b = JSON.parse(raw);
+        if (table === "aiQuestions" && state[table].some((r) => r.scope === b.scope && r.question === b.question)) {
+          return send(res, 409, { code: "23505", message: "duplicate key" });
+        }
+        const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...b };
+        state[table].push(row);
+        state.calls.push(`POST ${table}`);
+        return send(res, 201, one ? row : [row]);
+      }
+      if (req.method === "DELETE") {
+        state[table] = state[table].filter((r) => r.id !== eq("id"));
+        state.calls.push(`DELETE ${table}`);
+        return send(res, 204);
+      }
+    }
     if (p === "/functions/v1/analisar" && req.method === "POST") {
       const b = JSON.parse(raw);
       state.analyses.push(b);
