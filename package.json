@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --test \"supabase/functions/_shared/*.test.ts\" \"src/lib/*.test.ts\"",
+    "test": "node --test \"supabase/functions/_shared/*.test.ts\" \"src/lib/*.test.ts\" \"scripts/tests/*.test.mjs\"",
     "test:db": "node --test \"supabase/tests/*.test.mjs\"",
     "check:functions": "npx --yes deno@2.9.6 check --config supabase/functions/deno.json supabase/functions/*/index.ts",
     "test:e2e": "node e2e/flow.mjs",

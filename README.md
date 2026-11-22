@@ -36,6 +36,39 @@ Testes: `npm test` (funções puras do site e das Edge Functions), `npm run test
 
 A cada push na `main`, os workflows publicam o site e as Edge Functions. Veja `supabase/functions/.env.example` para a lista completa de segredos das funções.
 
+## Cópia de segurança (semanal)
+
+O plano grátis do Supabase não tem cópia para baixar. Todo domingo às 04:00 (Brasília) o workflow
+**Cópia de segurança** (`.github/workflows/copia-seguranca.yml`) lê as tabelas com a chave secreta,
+junta tudo num arquivo **criptografado** com a sua senha e guarda por 90 dias em Actions › Artifacts.
+Também dá para rodar na hora (Actions › Cópia de segurança › Run workflow).
+
+- Entram: perfis, registros (notas), remédios, histórico de doses, medições de pressão, perguntas
+  salvas e respostas da IA. **Não entram**: áudios do Storage, inscrições de push, contas de login e
+  a contagem da cota de IA.
+- Segredos do repositório: `SUPABASE_SECRET_KEY` (Supabase › Project Settings › API Keys › Secret key)
+  e `BACKUP_SENHA` (12+ caracteres, inventada por você). **Sem a `BACKUP_SENHA`, nenhuma cópia abre**:
+  guarde num gerenciador de senhas, fora do GitHub. Se trocar a senha, guarde a antiga por 90 dias.
+
+### Restaurar
+
+1. Uma vez só: Supabase › SQL Editor › colar `supabase/restaurar-copia.sql` › Run.
+2. GitHub › Actions › **Cópia de segurança** › execução da data desejada › **Artifacts** › baixar o `.zip`.
+3. Na pasta do projeto: `node scripts/restaurar-copia.mjs "C:Users<você>Downloadscopia-12.zip"`
+4. Colar a senha da cópia e a chave secreta (não aparecem na tela).
+5. Conferir a simulação (na cópia, já existem, faltam, sem conta) e digitar `RESTAURAR`.
+
+Opções: `--tabelas bp_readings,medications`; `--remedio <id>` (um remédio e o histórico de doses);
+`--registro <id>` (um registro); `--sobrescrever` (o que existe volta a ficar igual à cópia; use junto
+com `--tabelas`); `--sim` (não pergunta). Pode repetir sem duplicar.
+
+Cuidados: restaurar no banco de produção também traz de volta o que foi apagado **de propósito**
+depois da cópia (limite com as opções acima). Os áudios não voltam: a nota escrita continua, mas o
+player fica sem o som. Projeto novo (Supabase perdido): rode `schema.sql`, `cron.sql` e
+`restaurar-copia.sql`, faça `$env:SUPABASE_URL = "https://<novo>.supabase.co"` antes do comando e
+use a chave do projeto novo; as pessoas entram de novo com o mesmo e-mail, mas só voltam os dados
+de contas com o mesmo id.
+
 ## Privacidade
 
 O áudio das consultas é enviado ao Google Gemini para gerar a nota. Se ele estiver fora do ar, o áudio vai para o Groq. Nenhuma das duas chamadas guarda estado da conversa. Regras completas em [SECURITY.md](SECURITY.md).
